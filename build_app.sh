@@ -54,11 +54,12 @@ cat << 'EOF' > "$APP_BUNDLE/Contents/Info.plist"
 EOF
 
 # 3. Compile native launcher binary
-PYTHON_CONFIG=$(which python3.14-config || which python3-config)
+PYTHON_CONFIG=$(which python3.14-config || which python3.13-config || which python3.12-config || which python3-config)
 CFLAGS=$($PYTHON_CONFIG --cflags --embed)
 LDFLAGS=$($PYTHON_CONFIG --ldflags --embed)
+PY_BASE_PREFIX=$(python3 -c "import sys; print(sys.base_prefix)" 2>/dev/null || echo "/opt/homebrew/opt/python@3.14/Frameworks/Python.framework/Versions/3.14")
 
-clang -O2 $CFLAGS $LDFLAGS "$DIR/launcher.c" -o "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+clang -O2 $CFLAGS -DPYTHON_HOME_DIR="\"$PY_BASE_PREFIX\"" $LDFLAGS "$DIR/launcher.c" -o "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 # 4. Sign and install to ~/Applications
 codesign --force --deep --sign - -r='designated => identifier "com.gemini.dictation.assistant"' "$APP_BUNDLE"

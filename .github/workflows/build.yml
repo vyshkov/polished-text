@@ -1,0 +1,57 @@
+name: Build & Validate macOS App
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build & Validate on macOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate Python Syntax & Bytecode Compilation
+        run: |
+          python3 -m compileall dictation_app main.py
+          python3 -c "import dictation_app; print('✅ dictation_app package validated successfully')"
+
+      - name: Test CLI Interface
+        run: |
+          python3 main.py --help
+
+      - name: Build Native macOS .app Bundle
+        run: |
+          chmod +x build_app.sh
+          ./build_app.sh
+
+      - name: Verify Mach-O Binary & Code Signature
+        run: |
+          file "Gemini Assistant.app/Contents/MacOS/Gemini Assistant"
+          codesign -dv --verbose=4 "Gemini Assistant.app"
+
+      - name: Package App Bundle for Distribution
+        run: |
+          ditto -c -k --keepParent "Gemini Assistant.app" "Gemini-Assistant-macOS.zip"
+
+      - name: Upload Built App Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gemini-Assistant-macOS
+          path: Gemini-Assistant-macOS.zip
+          retention-days: 14

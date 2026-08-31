@@ -8,6 +8,10 @@
 
 #define RESTART_EXIT_CODE 42
 
+#ifndef PYTHON_HOME_DIR
+#define PYTHON_HOME_DIR "/opt/homebrew/opt/python@3.14/Frameworks/Python.framework/Versions/3.14"
+#endif
+
 static int run_child_python(int argc, char *argv[]) {
     const char *home = getenv("HOME");
     if (!home) home = "";
@@ -23,7 +27,11 @@ static int run_child_python(int argc, char *argv[]) {
     PyConfig_InitPythonConfig(&config);
 
     // Set Python framework runtime & program name
-    PyConfig_SetBytesString(&config, &config.home, "/opt/homebrew/opt/python@3.14/Frameworks/Python.framework/Versions/3.14");
+    const char *py_home = getenv("PYTHONHOME");
+    if (!py_home || strlen(py_home) == 0) {
+        py_home = PYTHON_HOME_DIR;
+    }
+    PyConfig_SetBytesString(&config, &config.home, (char *)py_home);
     PyConfig_SetBytesString(&config, &config.program_name, "Gemini Assistant");
 
     int total_args = argc > 1 ? argc + 1 : 2;
