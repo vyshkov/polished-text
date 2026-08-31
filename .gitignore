@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Secrets and local configurations
+.env
+!.env.example
+
+# Logs and user history
+*.log
+app.log
+history.json
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary & Build files
+*.flac
+*.wav
+*.app/
+*.o
+*.out
+
