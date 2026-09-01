@@ -93,9 +93,7 @@ int main(int argc, char *argv[]) {
         time_t now = time(NULL);
         char time_buf[64];
         strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", localtime(&now));
-        printf("\n==================================================\n");
-        printf("🚀 [%s] Starting Gemini Assistant\n", time_buf);
-        printf("==================================================\n");
+        printf("%s [INFO] [Launcher] Starting Gemini Assistant (supervisor PID: %d)\n", time_buf, getpid());
         fflush(stdout);
 
         pid_t pid = fork();
@@ -113,20 +111,24 @@ int main(int argc, char *argv[]) {
             int status = 0;
             waitpid(pid, &status, 0);
 
+            time_t exit_now = time(NULL);
+            char exit_time_buf[64];
+            strftime(exit_time_buf, sizeof(exit_time_buf), "%Y-%m-%d %H:%M:%S", localtime(&exit_now));
+
             if (WIFEXITED(status)) {
                 int exit_code = WEXITSTATUS(status);
                 if (exit_code == RESTART_EXIT_CODE) {
-                    printf("\n🔄 [Supervisor] Seamless restart triggered...\n");
+                    printf("%s [INFO] [Supervisor] Seamless restart triggered (child PID %d)\n", exit_time_buf, pid);
                     fflush(stdout);
                     usleep(150000); // 150ms delay
                     continue;
                 }
-                printf("\n👋 Gemini Assistant exited with code %d.\n", exit_code);
+                printf("%s [INFO] [Supervisor] Gemini Assistant exited cleanly with code %d\n", exit_time_buf, exit_code);
                 fflush(stdout);
                 return exit_code;
             } else if (WIFSIGNALED(status)) {
                 int sig = WTERMSIG(status);
-                printf("\n⚠️ Gemini Assistant terminated by signal %d.\n", sig);
+                printf("%s [WARNING] [Supervisor] Gemini Assistant child PID %d terminated by signal %d\n", exit_time_buf, pid, sig);
                 fflush(stdout);
                 return 128 + sig;
             }

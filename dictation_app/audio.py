@@ -12,7 +12,10 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from .config import MIC_LEVEL_SCALE, MIN_SPEECH_DURATION, SILENCE_RMS_THRESHOLD
+from .logger import get_logger
 from .sound import play_sound
+
+logger = get_logger("Audio")
 
 
 def _find_binary(name: str) -> Optional[str]:
@@ -294,7 +297,7 @@ class AudioRecorder:
         self.process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.is_recording = True
         play_sound("Tink")
-        print(f"\n🎙️  [Recording started] Speak into your microphone ({self.active_device_display})...")
+        logger.info("Recording started (device=%s)", self.active_device_display)
 
         if self.on_level:
             self._stop_level_event.clear()
@@ -322,12 +325,8 @@ class AudioRecorder:
                     continue
                 samples = struct.unpack(f"<{sample_count}h", chunk[:sample_count * 2])
                 rms = (sum(s * s for s in samples) / sample_count) ** 0.5
-                # Raw RMS for normal speech is often just a few hundred to low-thousands out of
-                # 32768, which barely registers linearly; a sqrt curve (perceptual/dB-like)
-                # makes quiet/normal speech move the bars instead of pinning them at the bottom.
                 level = min(1.0, (rms / MIC_LEVEL_SCALE) ** 0.5)
-                if os.getenv("DICTATION_DEBUG"):
-                    print(f"   ↳ mic rms={rms:.0f} level={level:.2f}")
+                logger.debug("Microphone level: rms=%.0f level=%.2f", rms, level)
                 self.on_level(level)
             except Exception:
                 continue
@@ -359,7 +358,7 @@ class AudioRecorder:
         self.is_recording = False
         self._stop_level_monitor()
         play_sound("Pop")
-        print("⏹️   [Recording stopped] Processing audio...")
+        logger.info("Recording stopped (processing audio)")
 
         # Terminate SoX gracefully to flush WAV headers
         try:

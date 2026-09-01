@@ -14,11 +14,13 @@ try:
     from google import genai
     from google.genai import types, errors as genai_errors
 except ImportError:
-    print("Error: 'google-genai' package is not installed.")
-    print("Please install dependencies: pip install -r ~/.config/dictation/requirements.txt")
-    sys.exit(1)
+    types = None
+    genai_errors = None
 
 from .config import DEFAULT_MODEL, DICTATION_LANGUAGES
+from .logger import get_logger
+
+logger = get_logger("Transcriber")
 
 
 def describe_error(exc: Exception) -> str:
@@ -91,11 +93,12 @@ class GeminiTranscriber:
         )
 
         usage = response.usage_metadata
-        if usage and os.getenv("DICTATION_DEBUG"):
-            print(
-                f"   ↳ tokens: prompt={usage.prompt_token_count} "
-                f"thoughts={getattr(usage, 'thoughts_token_count', 0)} "
-                f"output={usage.candidates_token_count}"
+        if usage:
+            logger.debug(
+                "Gemini tokens: prompt=%s thoughts=%s output=%s",
+                usage.prompt_token_count,
+                getattr(usage, 'thoughts_token_count', 0),
+                usage.candidates_token_count,
             )
 
         text = response.text.strip() if response.text else ""

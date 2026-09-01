@@ -46,6 +46,31 @@ except ImportError:
     pyperclip = None
 
 from .config import PASTE_AUTOMATICALLY
+from .logger import get_logger
+
+logger = get_logger("Clipboard")
+
+TERMINAL_APPS = {
+    "com.mitchellh.ghostty",
+    "com.googlecode.iterm2",
+    "com.apple.terminal",
+    "net.kovidgoyal.kitty",
+    "alacritty",
+    "org.alacritty",
+    "io.alacritty",
+    "com.github.wez.wezterm",
+    "dev.warp.warp-stable",
+    "co.zeit.hyper",
+    "io.hyper.hyper",
+}
+
+READONLY_APPS = {
+    "com.apple.finder",
+    "com.apple.preview",
+    "com.apple.calculator",
+    "com.apple.systempreferences",
+    "com.apple.systemsettings",
+}
 
 
 def _simulate_cmd_key(key_char: str):
@@ -62,7 +87,6 @@ def _simulate_cmd_key(key_char: str):
     else:
         applescript = f'tell application "System Events" to keystroke "{key_char}" using command down'
         subprocess.run(["osascript", "-e", applescript], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
 
 
 def is_focused_element_editable(focused=None) -> bool:
@@ -120,9 +144,6 @@ def is_focused_element_editable(focused=None) -> bool:
 
 def is_likely_editable_context(focused=None) -> bool:
     """Determine if the current context is likely editable (including web browsers and editors)."""
-    if is_focused_element_editable(focused):
-        return True
-
     if not HAS_APPKIT:
         return True
 
@@ -130,22 +151,25 @@ def is_likely_editable_context(focused=None) -> bool:
         ws = AppKit.NSWorkspace.sharedWorkspace()
         front_app = ws.frontmostApplication()
         if not front_app:
-            return True
+            return is_focused_element_editable(focused)
 
         bundle_id = (front_app.bundleIdentifier() or "").lower()
 
-        # Explicit read-only system tools where auto-pasting over selection is not desirable
-        readonly_system_apps = {
-            "com.apple.finder",
-            "com.apple.preview",
-            "com.apple.calculator",
-            "com.apple.systempreferences",
-        }
-        if bundle_id in readonly_system_apps:
+        # Terminal emulators (Ghostty, iTerm, Terminal.app, etc.):
+        # Selection is purely on the terminal screen grid and cannot be overwritten via Cmd+V
+        # without duplicating text on the shell prompt. Return False so we safely copy to clipboard.
+        if bundle_id in TERMINAL_APPS or any(t in bundle_id for t in ["ghostty", "iterm", "terminal", "alacritty", "kitty", "wezterm"]):
+            logger.debug("Terminal frontmost (%s) - using clipboard copy mode", bundle_id)
+            return False
+
+        # Explicit read-only system tools
+        if bundle_id in READONLY_APPS:
             return is_focused_element_editable(focused)
 
-        # For all web browsers (Chrome, Safari, Arc, Edge, Firefox), code editors, mail clients,
-        # chat apps, and general macOS applications, replacing active selection is supported
+        if is_focused_element_editable(focused):
+            return True
+
+        # Default to True for editors, browsers, notes, word processors, chat apps
         return True
     except Exception:
         return True

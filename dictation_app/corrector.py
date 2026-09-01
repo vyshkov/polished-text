@@ -13,12 +13,13 @@ try:
     from google import genai
     from google.genai import types
 except ImportError:
-    print("Error: 'google-genai' package is not installed.")
-    print("Please install dependencies: pip install -r ~/.config/dictation/requirements.txt")
-    sys.exit(1)
+    types = None
 
 from .config import DEFAULT_CORRECTOR_MODEL
+from .logger import get_logger
 from .transcriber import describe_error
+
+logger = get_logger("Corrector")
 
 
 class GeminiCorrector:
@@ -61,11 +62,12 @@ class GeminiCorrector:
         )
 
         usage = response.usage_metadata
-        if usage and os.getenv("DICTATION_DEBUG"):
-            print(
-                f"   ↳ tokens: prompt={usage.prompt_token_count} "
-                f"thoughts={getattr(usage, 'thoughts_token_count', 0)} "
-                f"output={usage.candidates_token_count}"
+        if usage:
+            logger.debug(
+                "Gemini tokens: prompt=%s thoughts=%s output=%s",
+                usage.prompt_token_count,
+                getattr(usage, 'thoughts_token_count', 0),
+                usage.candidates_token_count,
             )
 
         corrected = response.text.strip() if response.text else ""

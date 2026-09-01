@@ -5,8 +5,10 @@ from typing import Callable, Optional
 from .clipboard import copy_to_clipboard
 from .config import ENABLE_MENUBAR, LOG_FILE
 from .history import HistoryManager
-from .logger import clear_log_file, open_log_file
+from .logger import clear_log_file, get_logger, open_log_file
 from .sound import play_sound
+
+logger = get_logger("MenuBar")
 
 try:
     import AppKit
@@ -275,7 +277,7 @@ class DictationMenuBar:
             clean_preview = " ".join(text.split())
             if len(clean_preview) > 40:
                 clean_preview = f"{clean_preview[:40]}…"
-            print(f"\n📋 [Menu Bar] Copied to clipboard: \"{clean_preview}\"")
+            logger.info("Copied recent history to clipboard: \"%s\"", clean_preview)
 
     def on_copy_item(self, tag: int):
         """Backwards-compatibility copy helper by index."""
@@ -289,7 +291,7 @@ class DictationMenuBar:
         play_sound("Pop")
         if self.hud and getattr(self.hud, "enabled", False):
             self.hud.show_done("🗑️  Cleared")
-        print("\n🗑️ [Menu Bar] History cleared.")
+        logger.info("History cleared by user")
 
     def on_open_logs(self):
         """Called when user clicks Open Logs."""
@@ -301,13 +303,13 @@ class DictationMenuBar:
         play_sound("Pop")
         if self.hud and getattr(self.hud, "enabled", False):
             self.hud.show_done("🗑️  Logs Cleared")
-        print("\n🗑️ [Menu Bar] App logs cleared.")
+        logger.info("App logs cleared by user")
 
     def on_restart(self):
         """Cleanly restart the application (reloading code, config, and environment)."""
         import os
 
-        print("\n🔄 [Menu Bar] Restarting Gemini Dictation...")
+        logger.info("Restart requested by user (sending restart signal 42)...")
         play_sound("Blow")
         if self.hud and getattr(self.hud, "enabled", False):
             self.hud.show_done("🔄  Restarting...")
@@ -327,7 +329,7 @@ class DictationMenuBar:
 
     def on_quit(self):
         """Called when user clicks Quit."""
-        print("\n👋 [Menu Bar] Quitting Gemini Dictation...")
+        logger.info("Quit requested by user")
         if self.on_quit_callback:
             try:
                 self.on_quit_callback()

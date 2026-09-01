@@ -32,6 +32,9 @@ except ImportError:
 
 from .caret import get_caret_screen_rect, get_focused_window_rect
 from .config import ENABLE_HUD, HUD_FOLLOW_CARET, HUD_STYLE
+from .logger import get_logger
+
+logger = get_logger("HUD")
 
 # Unicode block glyphs (shortest to tallest) used to render the recording-level equalizer,
 # and a per-bar sensitivity so the bars fan out unevenly instead of moving in lockstep.
@@ -359,7 +362,7 @@ class DictationHUD:
             self.panel.setContentView_(effect_view)
             self.panel.orderFrontRegardless()
         except Exception as e:
-            print(f"HUD initialization notice: {e}")
+            logger.warning("HUD initialization notice: %s", e)
             self.enabled = False
 
     def _animate_in(self, duration: float = 0.22):
