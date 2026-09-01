@@ -49,5 +49,7 @@ MIC_LEVEL_SCALE = float(os.getenv("MIC_LEVEL_SCALE", "4000"))
 # Comma-separated languages the model should expect; narrows its search space and avoids
 # misidentifying accented speech as an unrelated language
 DICTATION_LANGUAGES = [
-    lang.strip() for lang in os.getenv("DICTATION_LANGUAGES", "English,Ukrainian").split(",") if lang.strip()
+    lang.strip()
+    for lang in os.getenv("DICTATION_LANGUAGES", "English,Ukrainian").split(",")
+    if lang.strip()
 ]

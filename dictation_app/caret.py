@@ -10,23 +10,24 @@ apps don't).
 """
 
 try:
+    import Quartz
     from ApplicationServices import (
-        AXUIElementCreateSystemWide,
         AXUIElementCopyAttributeValue,
         AXUIElementCopyParameterizedAttributeValue,
+        AXUIElementCreateSystemWide,
         AXValueGetValue,
-        kAXFocusedUIElementAttribute,
-        kAXFocusedApplicationAttribute,
-        kAXFocusedWindowAttribute,
-        kAXSelectedTextRangeAttribute,
         kAXBoundsForRangeParameterizedAttribute,
+        kAXFocusedApplicationAttribute,
+        kAXFocusedUIElementAttribute,
+        kAXFocusedWindowAttribute,
         kAXPositionAttribute,
+        kAXSelectedTextRangeAttribute,
         kAXSizeAttribute,
-        kAXValueCGRectType,
         kAXValueCGPointType,
+        kAXValueCGRectType,
         kAXValueCGSizeType,
     )
-    import Quartz
+
     HAS_ACCESSIBILITY = True
 except ImportError:
     HAS_ACCESSIBILITY = False
@@ -39,11 +40,15 @@ def get_caret_screen_rect():
         return None
     try:
         system_wide = AXUIElementCreateSystemWide()
-        err, focused = AXUIElementCopyAttributeValue(system_wide, kAXFocusedUIElementAttribute, None)
+        err, focused = AXUIElementCopyAttributeValue(
+            system_wide, kAXFocusedUIElementAttribute, None
+        )
         if err or focused is None:
             return None
 
-        err, text_range = AXUIElementCopyAttributeValue(focused, kAXSelectedTextRangeAttribute, None)
+        err, text_range = AXUIElementCopyAttributeValue(
+            focused, kAXSelectedTextRangeAttribute, None
+        )
         if err or text_range is None:
             return None
 

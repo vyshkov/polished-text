@@ -3,7 +3,6 @@
 import json
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from .config import HISTORY_FILE
 
@@ -11,10 +10,10 @@ from .config import HISTORY_FILE
 class HistoryManager:
     """Manages persistent history of recent dictations and corrections."""
 
-    def __init__(self, file_path: Optional[Path] = None, max_items: int = 20):
+    def __init__(self, file_path: Path | None = None, max_items: int = 20):
         self.file_path = file_path or HISTORY_FILE
         self.max_items = max_items
-        self._items: List[Dict] = []
+        self._items: list[dict] = []
         self.load()
 
     def load(self):
@@ -24,7 +23,7 @@ class HistoryManager:
             return
 
         try:
-            with open(self.file_path, "r", encoding="utf-8") as f:
+            with open(self.file_path, encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, list):
                     self._items = data[: self.max_items]
@@ -53,7 +52,11 @@ class HistoryManager:
             return
 
         # Avoid exact consecutive duplicate
-        if self._items and self._items[0].get("text") == text and self._items[0].get("kind") == kind:
+        if (
+            self._items
+            and self._items[0].get("text") == text
+            and self._items[0].get("kind") == kind
+        ):
             self._items[0]["timestamp"] = time.time()
             self.save()
             return
@@ -68,7 +71,7 @@ class HistoryManager:
         self._items = self._items[: self.max_items]
         self.save()
 
-    def get_recent(self, limit: int = 5) -> List[Dict]:
+    def get_recent(self, limit: int = 5) -> list[dict]:
         """Return the most recent history items up to limit."""
         return self._items[:limit]
 

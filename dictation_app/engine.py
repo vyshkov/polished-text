@@ -62,7 +62,12 @@ def _is_alt_key(key) -> bool:
 def check_and_prompt_accessibility() -> bool:
     """Verify macOS accessibility permissions and trigger system prompt if missing."""
     try:
-        from ApplicationServices import AXIsProcessTrusted, AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt
+        from ApplicationServices import (
+            AXIsProcessTrusted,
+            AXIsProcessTrustedWithOptions,
+            kAXTrustedCheckOptionPrompt,
+        )
+
         if AXIsProcessTrusted():
             return True
         options = {kAXTrustedCheckOptionPrompt: True}
@@ -130,7 +135,10 @@ class DictationEngine:
                 return
 
             if not has_speech(audio_file):
-                logger.info("Detected silence/background noise only from '%s' — skipping Gemini request", self.recorder.active_device_display)
+                logger.info(
+                    "Detected silence/background noise only from '%s' — skipping Gemini request",
+                    self.recorder.active_device_display,
+                )
                 self.hud.show_cancelled("🔇  No speech")
                 play_sound("Basso")
                 return
@@ -141,7 +149,7 @@ class DictationEngine:
             elapsed = time.time() - start_t
 
             if text:
-                logger.info("Transcribed in %.2fs: \"%s\"", elapsed, text)
+                logger.info('Transcribed in %.2fs: "%s"', elapsed, text)
                 self.history.add(text, kind="dictation")
                 self.menubar.update_menu()
                 self.hud.show_done()
@@ -173,7 +181,9 @@ class DictationEngine:
                 return
 
             self.hud.show_correcting()
-            logger.info("Polishing text with Gemini (%s, %d characters)...", self.corrector.model, len(text))
+            logger.info(
+                "Polishing text with Gemini (%s, %d characters)...", self.corrector.model, len(text)
+            )
             logger.debug("Original text: %r", text)
 
             corrected = self.corrector.correct(text)
@@ -183,13 +193,19 @@ class DictationEngine:
                 self.history.add(corrected, kind="correction")
                 self.menubar.update_menu()
 
-                can_replace = REPLACE_SELECTED_TEXT and (is_editable or is_likely_editable_context(focused_elem))
+                can_replace = REPLACE_SELECTED_TEXT and (
+                    is_editable or is_likely_editable_context(focused_elem)
+                )
                 if can_replace:
-                    logger.info("Text corrected in %.2fs [mode=in_place_replace]: \"%s\"", elapsed, corrected)
+                    logger.info(
+                        'Text corrected in %.2fs [mode=in_place_replace]: "%s"', elapsed, corrected
+                    )
                     replace_selected_text(corrected, focused_elem)
                     self.hud.show_done("✨  Replaced")
                 else:
-                    logger.info("Text corrected in %.2fs [mode=clipboard_copy]: \"%s\"", elapsed, corrected)
+                    logger.info(
+                        'Text corrected in %.2fs [mode=clipboard_copy]: "%s"', elapsed, corrected
+                    )
                     copy_to_clipboard(corrected)
                     self.hud.show_done("✨  Copied")
 
@@ -251,7 +267,9 @@ class DictationEngine:
 
         # Check macOS Accessibility permission
         if not check_and_prompt_accessibility():
-            logger.warning("macOS Accessibility permission not granted! Please allow Gemini Assistant in System Settings > Privacy & Security > Accessibility.")
+            logger.warning(
+                "macOS Accessibility permission not granted! Please allow Gemini Assistant in System Settings > Privacy & Security > Accessibility."
+            )
             notify(
                 "Accessibility Permission Required",
                 "Please enable Gemini Assistant in System Settings > Privacy & Security > Accessibility",
@@ -298,6 +316,7 @@ class DictationEngine:
 
     def _create_right_cmd_listener(self):
         """Dedicated intelligent listener for Right Command and Right Command + Option."""
+
         def on_press(key):
             if _is_alt_key(key):
                 self.is_alt_pressed = True
@@ -368,11 +387,10 @@ class DictationEngine:
 
         def on_press(key):
             try:
-                k_name = getattr(key, 'name', None) or str(key)
+                k_name = getattr(key, "name", None) or str(key)
                 if k_name.lower() == target:
                     self.toggle_recording()
             except Exception:
                 pass
 
         return keyboard.Listener(on_press=on_press)
-

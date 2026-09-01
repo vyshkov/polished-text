@@ -104,4 +104,24 @@ A native macOS status item in the top panel (menu bar):
 2. **Accessibility Access:** For global key listening across all applications and reading selected text, make sure your terminal (Terminal / iTerm2) has permission enabled in:
    **System Settings > Privacy & Security > Accessibility**.
 
+---
+
+## 🛠️ Development & Code Quality
+
+The project uses [Ruff](https://astral.sh/ruff) for lightning-fast Python linting and code formatting, adhering to modern PEP 8 and bug-prevention standards.
+
+- **Check for lint errors and formatting issues:**
+  ```bash
+  ./lint.sh
+  ```
+- **Automatically fix and format code:**
+  ```bash
+  ./lint.sh --fix
+  ```
+- **Install dev dependencies:**
+  ```bash
+  pip install -r requirements-dev.txt
+  ```
+
+
 

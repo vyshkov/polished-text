@@ -13,8 +13,12 @@ from .logger import rotate_and_prune_logs
 
 def main():
     rotate_and_prune_logs()
-    parser = argparse.ArgumentParser(description="Gemini Speech-to-Text Dictation and Text Corrector Engine")
-    parser.add_argument("--test", action="store_true", help="Run interactive single recording test in terminal")
+    parser = argparse.ArgumentParser(
+        description="Gemini Speech-to-Text Dictation and Text Corrector Engine"
+    )
+    parser.add_argument(
+        "--test", action="store_true", help="Run interactive single recording test in terminal"
+    )
     parser.add_argument(
         "--list-devices",
         action="store_true",
@@ -33,8 +37,18 @@ def main():
         const="i go yesterday to store and buyed some apple and orange it was very good weather outside",
         help="Test text correction on sample text",
     )
-    parser.add_argument("--hotkey", type=str, default=DEFAULT_HOTKEY, help="Hotkey (default: cmd_r for Right Command)")
-    parser.add_argument("--model", type=str, default=DEFAULT_MODEL, help=f"Gemini model to use for dictation (default: {DEFAULT_MODEL})")
+    parser.add_argument(
+        "--hotkey",
+        type=str,
+        default=DEFAULT_HOTKEY,
+        help="Hotkey (default: cmd_r for Right Command)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=DEFAULT_MODEL,
+        help=f"Gemini model to use for dictation (default: {DEFAULT_MODEL})",
+    )
     parser.add_argument(
         "--corrector-model",
         type=str,
@@ -88,4 +102,3 @@ def main():
             engine.start_listener()
         except KeyboardInterrupt:
             print("\n👋 Engine stopped.")
-

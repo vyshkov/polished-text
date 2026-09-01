@@ -1,6 +1,5 @@
 import atexit
 import ctypes
-from ctypes import Structure, byref, c_uint32, c_void_p, create_string_buffer
 import os
 import shutil
 import signal
@@ -8,8 +7,9 @@ import struct
 import subprocess
 import threading
 import time
+from collections.abc import Callable
+from ctypes import Structure, byref, c_uint32, c_void_p, create_string_buffer
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
 
 from .config import MIC_LEVEL_SCALE, MIN_SPEECH_DURATION, SILENCE_RMS_THRESHOLD
 from .logger import get_logger
@@ -18,7 +18,7 @@ from .sound import play_sound
 logger = get_logger("Audio")
 
 
-def _find_binary(name: str) -> Optional[str]:
+def _find_binary(name: str) -> str | None:
     """Find binary executable with fallback to standard Homebrew/macOS locations."""
     found = shutil.which(name)
     if found:
@@ -38,6 +38,7 @@ def _find_binary(name: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # CoreAudio Device Utilities (macOS)
 # ---------------------------------------------------------------------------
+
 
 class _AudioObjectPropertyAddress(Structure):
     _fields_ = [
@@ -63,8 +64,12 @@ _kAudioDevicePropertyStreams = _fourcc("stm#")
 
 def _get_coreaudio_libs():
     try:
-        core_audio = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")
-        core_foundation = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        core_audio = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/CoreAudio.framework/CoreAudio"
+        )
+        core_foundation = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+        )
         return core_audio, core_foundation
     except Exception:
         return None, None
@@ -114,7 +119,7 @@ def get_default_input_device_name() -> str:
         return "Default Microphone"
 
 
-def get_audio_input_devices() -> List[Dict[str, any]]:
+def get_audio_input_devices() -> list[dict[str, any]]:
     """Return a list of available input audio devices on macOS."""
     core_audio, core_foundation = _get_coreaudio_libs()
     if not core_audio or not core_foundation:
@@ -150,7 +155,13 @@ def get_audio_input_devices() -> List[Dict[str, any]]:
                 _kAudioObjectPropertyElementMain,
             )
             st_size = c_uint32()
-            if core_audio.AudioObjectGetPropertyDataSize(d, byref(st_addr), 0, None, byref(st_size)) == 0 and st_size.value > 0:
+            if (
+                core_audio.AudioObjectGetPropertyDataSize(
+                    d, byref(st_addr), 0, None, byref(st_size)
+                )
+                == 0
+                and st_size.value > 0
+            ):
                 name_addr = _AudioObjectPropertyAddress(
                     _kAudioDevicePropertyDeviceNameCFString,
                     _kAudioObjectPropertyScopeGlobal,
@@ -158,7 +169,13 @@ def get_audio_input_devices() -> List[Dict[str, any]]:
                 )
                 cfstr = c_void_p()
                 c_size = c_uint32(ctypes.sizeof(cfstr))
-                if core_audio.AudioObjectGetPropertyData(d, byref(name_addr), 0, None, byref(c_size), byref(cfstr)) == 0 and cfstr.value:
+                if (
+                    core_audio.AudioObjectGetPropertyData(
+                        d, byref(name_addr), 0, None, byref(c_size), byref(cfstr)
+                    )
+                    == 0
+                    and cfstr.value
+                ):
                     core_foundation.CFStringGetLength.restype = ctypes.c_long
                     length = core_foundation.CFStringGetLength(cfstr)
                     max_size = core_foundation.CFStringGetMaximumSizeForEncoding(length, 0x08000100)
@@ -168,11 +185,13 @@ def get_audio_input_devices() -> List[Dict[str, any]]:
                     name = buffer.value.decode("utf-8")
                     if name and name not in seen:
                         seen.add(name)
-                        devices.append({
-                            "id": d,
-                            "name": name,
-                            "is_default": (name == def_name),
-                        })
+                        devices.append(
+                            {
+                                "id": d,
+                                "name": name,
+                                "is_default": (name == def_name),
+                            }
+                        )
         return devices
     except Exception:
         return []
@@ -182,8 +201,7 @@ def kill_stale_recorder_processes():
     """Terminate any orphaned 'rec' or 'sox' processes from previous interrupted or crashed runs."""
     try:
         out = subprocess.run(
-            ["pgrep", "-f", "(rec|sox).*gemini_dictation_temp"],
-            capture_output=True, text=True
+            ["pgrep", "-f", "(rec|sox).*gemini_dictation_temp"], capture_output=True, text=True
         ).stdout.strip()
         if out:
             for pid_str in out.splitlines():
@@ -201,8 +219,7 @@ def get_audio_stats(path: Path) -> dict:
     """Run 'sox <file> -n stat' and parse its stderr report into a dict of floats."""
     try:
         result = subprocess.run(
-            ["sox", str(path), "-n", "stat"],
-            capture_output=True, text=True, timeout=5
+            ["sox", str(path), "-n", "stat"], capture_output=True, text=True, timeout=5
         )
     except Exception:
         return {}
@@ -226,20 +243,22 @@ def has_speech(path: Path) -> bool:
     rms = stats.get("RMS amplitude", 0.0)
     if duration < MIN_SPEECH_DURATION:
         return False
-    if rms < SILENCE_RMS_THRESHOLD:
-        return False
-    return True
+    return rms >= SILENCE_RMS_THRESHOLD
 
 
 class AudioRecorder:
     def __init__(
         self,
         output_path: Path,
-        on_level: Optional[Callable[[float], None]] = None,
-        device_name: Optional[str] = None,
+        on_level: Callable[[float], None] | None = None,
+        device_name: str | None = None,
     ):
         self.output_path = output_path
-        self.device_name = device_name.strip() if device_name and device_name.strip().lower() != "default" else None
+        self.device_name = (
+            device_name.strip()
+            if device_name and device_name.strip().lower() != "default"
+            else None
+        )
         # Clean up any leftover 'rec' or 'sox' processes from previous sessions
         kill_stale_recorder_processes()
         # Recorded as raw WAV first so the level-monitor thread can tail it while it's being
@@ -270,29 +289,29 @@ class AudioRecorder:
         sox_path = _find_binary("sox")
         rec_path = _find_binary("rec")
         if not sox_path and not rec_path:
-            raise RuntimeError("SoX ('rec' / 'sox' command) is not found. Please install it using 'brew install sox'.")
+            raise RuntimeError(
+                "SoX ('rec' / 'sox' command) is not found. Please install it using 'brew install sox'."
+            )
 
         # Build recording command
         if self.device_name and sox_path:
             cmd = [
                 sox_path,
                 "-q",
-                "-t", "coreaudio", self.device_name,
-                "-r", "16000",
-                "-c", "1",
-                "-b", "16",
-                str(self._raw_wav_path)
+                "-t",
+                "coreaudio",
+                self.device_name,
+                "-r",
+                "16000",
+                "-c",
+                "1",
+                "-b",
+                "16",
+                str(self._raw_wav_path),
             ]
         else:
             bin_path = rec_path if rec_path else sox_path
-            cmd = [
-                bin_path,
-                "-q",
-                "-r", "16000",
-                "-c", "1",
-                "-b", "16",
-                str(self._raw_wav_path)
-            ]
+            cmd = [bin_path, "-q", "-r", "16000", "-c", "1", "-b", "16", str(self._raw_wav_path)]
 
         self.process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.is_recording = True
@@ -323,7 +342,7 @@ class AudioRecorder:
                 sample_count = len(chunk) // 2
                 if sample_count == 0:
                     continue
-                samples = struct.unpack(f"<{sample_count}h", chunk[:sample_count * 2])
+                samples = struct.unpack(f"<{sample_count}h", chunk[: sample_count * 2])
                 rms = (sum(s * s for s in samples) / sample_count) ** 0.5
                 level = min(1.0, (rms / MIC_LEVEL_SCALE) ** 0.5)
                 logger.debug("Microphone level: rms=%.0f level=%.2f", rms, level)
@@ -380,7 +399,10 @@ class AudioRecorder:
         try:
             subprocess.run(
                 ["sox", str(self._raw_wav_path), "-C", "8", str(self.output_path)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=True
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+                check=True,
             )
         except Exception:
             self._cleanup_temp_files()

@@ -27,7 +27,7 @@ _script_dir = Path(__file__).resolve().parent
 _venv_python = _script_dir / "venv" / "bin" / "python"
 if _venv_python.exists() and sys.executable != str(_venv_python) and sys.prefix == sys.base_prefix:
     try:
-        os.execv(str(_venv_python), [str(_venv_python)] + sys.argv)
+        os.execv(str(_venv_python), [str(_venv_python), *sys.argv])
     except Exception:
         pass
 
@@ -40,7 +40,7 @@ if __name__ == "__main__":
         script_path = str(Path(__file__).resolve())
         while True:
             try:
-                proc = subprocess.run([sys.executable, script_path] + sys.argv[1:])
+                proc = subprocess.run([sys.executable, script_path, *sys.argv[1:]], check=False)
                 if proc.returncode == RESTART_EXIT_CODE:
                     print("\n🔄 [Supervisor] Restarting Gemini Dictation...\n")
                     time.sleep(0.15)
@@ -51,4 +51,5 @@ if __name__ == "__main__":
                 sys.exit(0)
     else:
         from dictation_app.cli import main
+
         main()

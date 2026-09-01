@@ -1,13 +1,8 @@
 """Gemini API calls for text correction, proofreading, and natural phrasing."""
 
-import os
-import sys
 import logging
+import os
 import warnings
-
-logging.getLogger("google.genai").setLevel(logging.ERROR)
-logging.getLogger("google").setLevel(logging.ERROR)
-warnings.filterwarnings("ignore", message=".*automatic function calling.*")
 
 try:
     from google import genai
@@ -17,7 +12,10 @@ except ImportError:
 
 from .config import DEFAULT_CORRECTOR_MODEL
 from .logger import get_logger
-from .transcriber import describe_error
+
+logging.getLogger("google.genai").setLevel(logging.ERROR)
+logging.getLogger("google").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", message=".*automatic function calling.*")
 
 logger = get_logger("Corrector")
 
@@ -25,7 +23,7 @@ logger = get_logger("Corrector")
 class GeminiCorrector:
     """Proofreads and polishes text using Google Gemini Flash-Lite."""
 
-    def __init__(self, api_key: str = None, model: str = DEFAULT_CORRECTOR_MODEL):
+    def __init__(self, api_key: str | None = None, model: str = DEFAULT_CORRECTOR_MODEL):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
             raise ValueError(
@@ -66,7 +64,7 @@ class GeminiCorrector:
             logger.debug(
                 "Gemini tokens: prompt=%s thoughts=%s output=%s",
                 usage.prompt_token_count,
-                getattr(usage, 'thoughts_token_count', 0),
+                getattr(usage, "thoughts_token_count", 0),
                 usage.candidates_token_count,
             )
 

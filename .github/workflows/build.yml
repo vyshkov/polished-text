@@ -24,7 +24,12 @@ jobs:
       - name: Install Dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Lint & Format Check (Ruff)
+        run: |
+          ruff check dictation_app main.py
+          ruff format --check dictation_app main.py
 
       - name: Validate Python Syntax & Bytecode Compilation
         run: |

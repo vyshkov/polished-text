@@ -1,31 +1,49 @@
 import signal
 import warnings
 
-warnings.filterwarnings("ignore", message=".*ObjCPointer.*")
-
 try:
     import AppKit
     from Cocoa import (
-        NSPanel, NSColor, NSVisualEffectView, NSApplication,
-        NSMakeRect, NSMakePoint, NSScreen, NSTextField, NSFont,
-        NSFontWeightSemibold, NSValue,
-        NSWindowStyleMaskBorderless, NSWindowStyleMaskNonactivatingPanel,
+        NSAnimationContext,
+        NSAppearance,
+        NSApplication,
+        NSColor,
+        NSFont,
+        NSFontWeightSemibold,
+        NSMakePoint,
+        NSMakeRect,
+        NSPanel,
+        NSRunLoop,
+        NSRunLoopCommonModes,
         NSStatusWindowLevel,
-        NSWindowCollectionBehaviorCanJoinAllSpaces, NSWindowCollectionBehaviorStationary,
-        NSWindowCollectionBehaviorIgnoresCycle, NSVisualEffectMaterialPopover,
-        NSVisualEffectBlendingModeBehindWindow, NSVisualEffectStateActive,
-        NSTextAlignmentCenter, NSAnimationContext, NSAppearance,
-        NSRunLoop, NSRunLoopCommonModes, NSTimer
-    )
-    import Quartz
-    from Quartz import (
-        CGPoint, CATransform3DMakeTranslation, CATransform3DMakeScale,
-        CATransform3DConcat, CATransform3DIdentity,
-        CABasicAnimation, CASpringAnimation, CAMediaTimingFunction,
-        kCAMediaTimingFunctionEaseOut, kCAMediaTimingFunctionEaseIn,
-        kCAFillModeForwards
+        NSTextAlignmentCenter,
+        NSTextField,
+        NSTimer,
+        NSValue,
+        NSVisualEffectBlendingModeBehindWindow,
+        NSVisualEffectMaterialPopover,
+        NSVisualEffectStateActive,
+        NSVisualEffectView,
+        NSWindowCollectionBehaviorCanJoinAllSpaces,
+        NSWindowCollectionBehaviorIgnoresCycle,
+        NSWindowCollectionBehaviorStationary,
+        NSWindowStyleMaskBorderless,
+        NSWindowStyleMaskNonactivatingPanel,
     )
     from PyObjCTools import AppHelper
+    from Quartz import (
+        CABasicAnimation,
+        CAMediaTimingFunction,
+        CASpringAnimation,
+        CATransform3DConcat,
+        CATransform3DIdentity,
+        CATransform3DMakeScale,
+        CATransform3DMakeTranslation,
+        kCAFillModeForwards,
+        kCAMediaTimingFunctionEaseIn,
+        kCAMediaTimingFunctionEaseOut,
+    )
+
     HAS_PYOBJC = True
 except ImportError:
     HAS_PYOBJC = False
@@ -33,6 +51,8 @@ except ImportError:
 from .caret import get_caret_screen_rect, get_focused_window_rect
 from .config import ENABLE_HUD, HUD_FOLLOW_CARET, HUD_STYLE
 from .logger import get_logger
+
+warnings.filterwarnings("ignore", message=".*ObjCPointer.*")
 
 logger = get_logger("HUD")
 
@@ -82,7 +102,10 @@ def get_screen_for_rect(x: float, y: float, w: float, h: float):
     cy = y + h / 2.0
     for s in screens:
         f = s.frame()
-        if f.origin.x <= cx <= f.origin.x + f.size.width and f.origin.y <= cy <= f.origin.y + f.size.height:
+        if (
+            f.origin.x <= cx <= f.origin.x + f.size.width
+            and f.origin.y <= cy <= f.origin.y + f.size.height
+        ):
             return s
 
     return AppKit.NSScreen.mainScreen() or screens[0]
@@ -138,7 +161,9 @@ def calculate_intelligent_hud_position(
             target_screen = get_screen_for_rect(wx, wy, ww, wh)
 
     if not target_screen:
-        target_screen = AppKit.NSScreen.mainScreen() or (AppKit.NSScreen.screens()[0] if AppKit.NSScreen.screens() else None)
+        target_screen = AppKit.NSScreen.mainScreen() or (
+            AppKit.NSScreen.screens()[0] if AppKit.NSScreen.screens() else None
+        )
 
     if not target_screen:
         return (100.0, 100.0)
@@ -191,7 +216,7 @@ def calculate_intelligent_hud_position(
         n_left, n_right, n_bottom = notch
         notch_margin = 10.0
         overlaps_x = (x < n_right + notch_margin) and (x + panel_w > n_left - notch_margin)
-        overlaps_y = (y + panel_h > n_bottom - notch_margin)
+        overlaps_y = y + panel_h > n_bottom - notch_margin
 
         if overlaps_x and overlaps_y:
             # Shift safely below notch
@@ -286,6 +311,7 @@ run_console_event_loop = run_cocoa_event_loop
 
 class DictationHUD:
     """Minimal floating macOS frosted glass HUD pill (Dynamic Island / Siri style)."""
+
     def __init__(self, enabled: bool = True):
         self.enabled = enabled and HAS_PYOBJC and ENABLE_HUD
         self.panel = None
@@ -311,13 +337,13 @@ class DictationHUD:
                 NSMakeRect(x, y, w, h),
                 NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel,
                 AppKit.NSBackingStoreBuffered,
-                False
+                False,
             )
             self.panel.setLevel_(NSStatusWindowLevel)
             self.panel.setCollectionBehavior_(
-                NSWindowCollectionBehaviorCanJoinAllSpaces |
-                NSWindowCollectionBehaviorStationary |
-                NSWindowCollectionBehaviorIgnoresCycle
+                NSWindowCollectionBehaviorCanJoinAllSpaces
+                | NSWindowCollectionBehaviorStationary
+                | NSWindowCollectionBehaviorIgnoresCycle
             )
             self.panel.setOpaque_(False)
             self.panel.setBackgroundColor_(NSColor.clearColor())
@@ -327,15 +353,25 @@ class DictationHUD:
 
             # Use Apple's native Liquid Glass component (macOS 26+ NSGlassEffectView) or classic NSVisualEffectView
             if hasattr(AppKit, "NSGlassEffectView"):
-                glass_style = AppKit.NSGlassEffectViewStyleClear if HUD_STYLE == "clear" else AppKit.NSGlassEffectViewStyleRegular
-                effect_view = AppKit.NSGlassEffectView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
+                glass_style = (
+                    AppKit.NSGlassEffectViewStyleClear
+                    if HUD_STYLE == "clear"
+                    else AppKit.NSGlassEffectViewStyleRegular
+                )
+                effect_view = AppKit.NSGlassEffectView.alloc().initWithFrame_(
+                    NSMakeRect(0, 0, w, h)
+                )
                 effect_view.setStyle_(glass_style)
                 effect_view.setCornerRadius_(h / 2.0)
-                effect_view.setAppearance_(NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua"))
+                effect_view.setAppearance_(
+                    NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
+                )
                 effect_view.setWantsLayer_(True)
             else:
                 effect_view = NSVisualEffectView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
-                effect_view.setAppearance_(NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua"))
+                effect_view.setAppearance_(
+                    NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
+                )
                 effect_view.setMaterial_(NSVisualEffectMaterialPopover)
                 effect_view.setBlendingMode_(NSVisualEffectBlendingModeBehindWindow)
                 effect_view.setState_(NSVisualEffectStateActive)
@@ -375,7 +411,9 @@ class DictationHUD:
         context = NSAnimationContext.currentContext()
         context.setDuration_(duration)
         if HAS_PYOBJC:
-            context.setTimingFunction_(CAMediaTimingFunction.functionWithName_(kCAMediaTimingFunctionEaseOut))
+            context.setTimingFunction_(
+                CAMediaTimingFunction.functionWithName_(kCAMediaTimingFunctionEaseOut)
+            )
         self.panel.animator().setAlphaValue_(1.0)
         NSAnimationContext.endGrouping()
 
@@ -402,7 +440,9 @@ class DictationHUD:
                     anim.setFromValue_(from_val)
                     anim.setToValue_(to_val)
                     anim.setDuration_(duration)
-                    anim.setTimingFunction_(CAMediaTimingFunction.functionWithName_(kCAMediaTimingFunctionEaseOut))
+                    anim.setTimingFunction_(
+                        CAMediaTimingFunction.functionWithName_(kCAMediaTimingFunctionEaseOut)
+                    )
                     anim.setFillMode_(kCAFillModeForwards)
                     layer.addAnimation_forKey_(anim, "zoom")
                 layer.setTransform_(CATransform3DIdentity)
@@ -417,7 +457,9 @@ class DictationHUD:
         context = NSAnimationContext.currentContext()
         context.setDuration_(duration)
         if HAS_PYOBJC:
-            context.setTimingFunction_(CAMediaTimingFunction.functionWithName_(kCAMediaTimingFunctionEaseIn))
+            context.setTimingFunction_(
+                CAMediaTimingFunction.functionWithName_(kCAMediaTimingFunctionEaseIn)
+            )
         self.panel.animator().setAlphaValue_(0.0)
         NSAnimationContext.endGrouping()
 
@@ -433,13 +475,13 @@ class DictationHUD:
                 anim.setFromValue_(from_val)
                 anim.setToValue_(to_val)
                 anim.setDuration_(duration)
-                anim.setTimingFunction_(CAMediaTimingFunction.functionWithName_(kCAMediaTimingFunctionEaseIn))
+                anim.setTimingFunction_(
+                    CAMediaTimingFunction.functionWithName_(kCAMediaTimingFunctionEaseIn)
+                )
                 anim.setFillMode_(kCAFillModeForwards)
                 layer.addAnimation_forKey_(anim, "zoom")
                 layer.setTransform_(to_transform)
         self._is_visible = False
-
-
 
     def _update_ui(self, text: str, visible: bool, duration: float = 0.2):
         if not self.panel or not self.label:
@@ -456,7 +498,6 @@ class DictationHUD:
         else:
             if self._is_visible:
                 self._animate_out(duration=duration)
-
 
     def show_recording(self):
         if not self.enabled:

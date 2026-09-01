@@ -5,37 +5,39 @@ import time
 
 try:
     import AppKit
+
     HAS_APPKIT = True
 except ImportError:
     HAS_APPKIT = False
 
 try:
     from ApplicationServices import (
-        AXUIElementCreateSystemWide,
-        AXUIElementCreateApplication,
         AXUIElementCopyAttributeValue,
+        AXUIElementCreateApplication,
+        AXUIElementCreateSystemWide,
         AXUIElementIsAttributeSettable,
         AXUIElementSetAttributeValue,
         kAXFocusedUIElementAttribute,
-        kAXSelectedTextAttribute,
-        kAXValueAttribute,
         kAXRoleAttribute,
         kAXRoleDescriptionAttribute,
+        kAXSelectedTextAttribute,
         kAXSelectedTextRangeAttribute,
+        kAXValueAttribute,
     )
+
     HAS_AX = True
 except ImportError:
     HAS_AX = False
 
 try:
-    import Quartz
     from Quartz import (
         CGEventCreateKeyboardEvent,
-        CGEventSetFlags,
         CGEventPost,
+        CGEventSetFlags,
         kCGAnnotatedSessionEventTap,
         kCGEventFlagMaskCommand,
     )
+
     HAS_QUARTZ = True
 except ImportError:
     HAS_QUARTZ = False
@@ -85,8 +87,12 @@ def _simulate_cmd_key(key_char: str):
         CGEventPost(kCGAnnotatedSessionEventTap, event_down)
         CGEventPost(kCGAnnotatedSessionEventTap, event_up)
     else:
-        applescript = f'tell application "System Events" to keystroke "{key_char}" using command down'
-        subprocess.run(["osascript", "-e", applescript], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        applescript = (
+            f'tell application "System Events" to keystroke "{key_char}" using command down'
+        )
+        subprocess.run(
+            ["osascript", "-e", applescript], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
 
 
 def is_focused_element_editable(focused=None) -> bool:
@@ -96,13 +102,17 @@ def is_focused_element_editable(focused=None) -> bool:
     try:
         if focused is None:
             system_wide = AXUIElementCreateSystemWide()
-            err, focused = AXUIElementCopyAttributeValue(system_wide, kAXFocusedUIElementAttribute, None)
+            err, focused = AXUIElementCopyAttributeValue(
+                system_wide, kAXFocusedUIElementAttribute, None
+            )
             if (err or focused is None) and HAS_APPKIT:
                 ws = AppKit.NSWorkspace.sharedWorkspace()
                 front_app = ws.frontmostApplication()
                 if front_app:
                     app_elem = AXUIElementCreateApplication(front_app.processIdentifier())
-                    err, focused = AXUIElementCopyAttributeValue(app_elem, kAXFocusedUIElementAttribute, None)
+                    err, focused = AXUIElementCopyAttributeValue(
+                        app_elem, kAXFocusedUIElementAttribute, None
+                    )
         if not focused:
             return False
 
@@ -118,7 +128,12 @@ def is_focused_element_editable(focused=None) -> bool:
         # 2. Check Role
         err, role = AXUIElementCopyAttributeValue(focused, kAXRoleAttribute, None)
         editable_roles = {
-            "AXTextField", "AXTextArea", "AXComboBox", "AXSearchField", "AXText", "AXWebArea"
+            "AXTextField",
+            "AXTextArea",
+            "AXComboBox",
+            "AXSearchField",
+            "AXText",
+            "AXWebArea",
         }
         if not err and role in editable_roles:
             return True
@@ -132,12 +147,10 @@ def is_focused_element_editable(focused=None) -> bool:
 
         # 4. Check if text selection range exists and it's not an explicit read-only role
         readonly_roles = {"AXStaticText", "AXHeading", "AXImage", "AXLink", "AXButton", "AXMenuBar"}
-        err, text_range = AXUIElementCopyAttributeValue(focused, kAXSelectedTextRangeAttribute, None)
-        if not err and text_range is not None:
-            if not (role and role in readonly_roles):
-                return True
-
-        return False
+        err, text_range = AXUIElementCopyAttributeValue(
+            focused, kAXSelectedTextRangeAttribute, None
+        )
+        return not err and text_range is not None and not (role and role in readonly_roles)
     except Exception:
         return False
 
@@ -158,7 +171,10 @@ def is_likely_editable_context(focused=None) -> bool:
         # Terminal emulators (Ghostty, iTerm, Terminal.app, etc.):
         # Selection is purely on the terminal screen grid and cannot be overwritten via Cmd+V
         # without duplicating text on the shell prompt. Return False so we safely copy to clipboard.
-        if bundle_id in TERMINAL_APPS or any(t in bundle_id for t in ["ghostty", "iterm", "terminal", "alacritty", "kitty", "wezterm"]):
+        if bundle_id in TERMINAL_APPS or any(
+            t in bundle_id
+            for t in ["ghostty", "iterm", "terminal", "alacritty", "kitty", "wezterm"]
+        ):
             logger.debug("Terminal frontmost (%s) - using clipboard copy mode", bundle_id)
             return False
 
@@ -181,13 +197,17 @@ def get_selected_text_ax() -> tuple[str | None, bool, object | None]:
         return None, False, None
     try:
         system_wide = AXUIElementCreateSystemWide()
-        err, focused = AXUIElementCopyAttributeValue(system_wide, kAXFocusedUIElementAttribute, None)
+        err, focused = AXUIElementCopyAttributeValue(
+            system_wide, kAXFocusedUIElementAttribute, None
+        )
         if (err or focused is None) and HAS_APPKIT:
             ws = AppKit.NSWorkspace.sharedWorkspace()
             front_app = ws.frontmostApplication()
             if front_app:
                 app_elem = AXUIElementCreateApplication(front_app.processIdentifier())
-                err, focused = AXUIElementCopyAttributeValue(app_elem, kAXFocusedUIElementAttribute, None)
+                err, focused = AXUIElementCopyAttributeValue(
+                    app_elem, kAXFocusedUIElementAttribute, None
+                )
 
         if not err and focused:
             editable = is_focused_element_editable(focused)
@@ -202,7 +222,9 @@ def get_selected_text_ax() -> tuple[str | None, bool, object | None]:
     return None, False, None
 
 
-def get_selected_text_info(timeout: float = 0.25, preserve_clipboard: bool = False) -> tuple[str | None, bool, object | None]:
+def get_selected_text_info(
+    timeout: float = 0.25, preserve_clipboard: bool = False
+) -> tuple[str | None, bool, object | None]:
     """Retrieve the selected text, whether it is in an editable field, and the focused element.
 
     Returns: (selected_text, is_editable, focused_element)
@@ -306,9 +328,18 @@ def _is_web_browser_frontmost() -> bool:
         front_app = ws.frontmostApplication()
         if front_app:
             bundle_id = (front_app.bundleIdentifier() or "").lower()
-            return (
-                bundle_id in WEB_BROWSER_BUNDLES
-                or any(browser in bundle_id for browser in ["safari", "chrome", "firefox", "arc", "edge", "brave", "opera", "vivaldi"])
+            return bundle_id in WEB_BROWSER_BUNDLES or any(
+                browser in bundle_id
+                for browser in [
+                    "safari",
+                    "chrome",
+                    "firefox",
+                    "arc",
+                    "edge",
+                    "brave",
+                    "opera",
+                    "vivaldi",
+                ]
             )
     except Exception:
         pass
@@ -326,7 +357,9 @@ def replace_selected_text(text: str, focused_elem: object = None) -> bool:
     # direct AXUIElement set is instant, synchronous, and immune to modifier key state/focus issues.
     if not is_browser and HAS_AX and focused_elem is not None:
         try:
-            err_set, settable = AXUIElementIsAttributeSettable(focused_elem, kAXSelectedTextAttribute, None)
+            err_set, settable = AXUIElementIsAttributeSettable(
+                focused_elem, kAXSelectedTextAttribute, None
+            )
             if not err_set and settable:
                 err = AXUIElementSetAttributeValue(focused_elem, kAXSelectedTextAttribute, text)
                 if not err:
@@ -340,8 +373,6 @@ def replace_selected_text(text: str, focused_elem: object = None) -> bool:
     # so simulating Cmd+V paste is required to trigger the web framework's paste handlers.
     paste_text(text)
     return True
-
-
 
 
 def copy_to_clipboard(text: str):
@@ -371,6 +402,3 @@ def paste_text(text: str):
         # Brief pause to ensure physical modifier keys settle
         time.sleep(0.06)
         _simulate_cmd_key("v")
-
-
-

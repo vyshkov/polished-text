@@ -13,4 +13,3 @@ Package layout:
 - caret.py:       Accessibility text caret / window bounds lookup
 - notifications.py: macOS notification banners
 """
-

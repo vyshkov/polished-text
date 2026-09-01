@@ -1,6 +1,6 @@
 """macOS Menu Bar (Status Item) interface with recent history and app controls."""
 
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from .clipboard import copy_to_clipboard
 from .config import ENABLE_MENUBAR, LOG_FILE
@@ -78,8 +78,8 @@ class DictationMenuBar:
         self,
         history: HistoryManager,
         hud=None,
-        get_active_device: Optional[Callable[[], str]] = None,
-        on_quit_callback: Optional[Callable[[], None]] = None,
+        get_active_device: Callable[[], str] | None = None,
+        on_quit_callback: Callable[[], None] | None = None,
         enabled: bool = True,
     ):
         self.history = history
@@ -110,7 +110,11 @@ class DictationMenuBar:
             button = self.status_item.button()
             if button:
                 # Try SF Symbols first
-                img = _make_sf_symbol("waveform.and.mic") or _make_sf_symbol("mic.fill") or _make_sf_symbol("mic")
+                img = (
+                    _make_sf_symbol("waveform.and.mic")
+                    or _make_sf_symbol("mic.fill")
+                    or _make_sf_symbol("mic")
+                )
                 if img:
                     button.setImage_(img)
                 else:
@@ -183,12 +187,9 @@ class DictationMenuBar:
 
                 # Format single-line preview
                 clean_line = " ".join(raw_text.split())
-                if len(clean_line) > 38:
-                    preview = f"{clean_line[:38]}…"
-                else:
-                    preview = clean_line
+                preview = f"{clean_line[:38]}…" if len(clean_line) > 38 else clean_line
 
-                menu_title = f"\"{preview}\""
+                menu_title = f'"{preview}"'
                 menu_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
                     menu_title, "copyHistoryItem:", ""
                 )
@@ -233,7 +234,9 @@ class DictationMenuBar:
         logs_menu_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Open Logs...", "openLogs:", ""
         )
-        logs_menu_item.setImage_(_make_sf_symbol("doc.text.magnifyingglass") or _make_sf_symbol("doc.text"))
+        logs_menu_item.setImage_(
+            _make_sf_symbol("doc.text.magnifyingglass") or _make_sf_symbol("doc.text")
+        )
         logs_menu_item.setTarget_(self.delegate)
         logs_menu_item.setEnabled_(True)
         self.menu.addItem_(logs_menu_item)
@@ -277,7 +280,7 @@ class DictationMenuBar:
             clean_preview = " ".join(text.split())
             if len(clean_preview) > 40:
                 clean_preview = f"{clean_preview[:40]}…"
-            logger.info("Copied recent history to clipboard: \"%s\"", clean_preview)
+            logger.info('Copied recent history to clipboard: "%s"', clean_preview)
 
     def on_copy_item(self, tag: int):
         """Backwards-compatibility copy helper by index."""
@@ -322,6 +325,7 @@ class DictationMenuBar:
                 pass
 
         from .hud import stop_cocoa_event_loop
+
         stop_cocoa_event_loop()
 
         # Signal supervisor process to reboot with a fresh PID and clean Mach ports
@@ -336,6 +340,7 @@ class DictationMenuBar:
             except Exception:
                 pass
         from .hud import stop_cocoa_event_loop
+
         stop_cocoa_event_loop()
         try:
             AppHelper.stopEventLoop()
@@ -345,4 +350,3 @@ class DictationMenuBar:
             AppKit.NSApplication.sharedApplication().terminate_(None)
         except Exception:
             pass
-
