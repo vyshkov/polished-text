@@ -1,36 +1,19 @@
 """Gemini API calls for text correction, proofreading, and natural phrasing."""
 
-import logging
-import os
-import warnings
-
 try:
-    from google import genai
     from google.genai import types
 except ImportError:
     types = None
 
 from .config import DEFAULT_CORRECTOR_MODEL
-from .logger import get_logger
-
-logging.getLogger("google.genai").setLevel(logging.ERROR)
-logging.getLogger("google").setLevel(logging.ERROR)
-warnings.filterwarnings("ignore", message=".*automatic function calling.*")
-
-logger = get_logger("Corrector")
+from .gemini_client import GeminiClientBase
 
 
-class GeminiCorrector:
+class GeminiCorrector(GeminiClientBase):
     """Proofreads and polishes text using Google Gemini Flash-Lite."""
 
     def __init__(self, api_key: str | None = None, model: str = DEFAULT_CORRECTOR_MODEL):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        if not self.api_key:
-            raise ValueError(
-                "Gemini API Key not found! Please set GEMINI_API_KEY in ~/.config/dictation/.env or export it."
-            )
-        self.model = model
-        self.client = genai.Client(api_key=self.api_key)
+        super().__init__(api_key, model, "Corrector")
 
     def correct(self, text: str) -> str:
         """Correct punctuation, grammar, awkward phrasing, and style while preserving meaning."""
@@ -59,14 +42,7 @@ class GeminiCorrector:
             ),
         )
 
-        usage = response.usage_metadata
-        if usage:
-            logger.debug(
-                "Gemini tokens: prompt=%s thoughts=%s output=%s",
-                usage.prompt_token_count,
-                getattr(usage, "thoughts_token_count", 0),
-                usage.candidates_token_count,
-            )
+        self._log_token_usage(response.usage_metadata)
 
         corrected = response.text.strip() if response.text else ""
         return corrected

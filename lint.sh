@@ -16,13 +16,13 @@ fi
 
 if [[ "$1" == "--fix" || "$1" == "-f" ]]; then
     echo "🔧 Running Ruff auto-fix and format..."
-    "$RUFF" check --fix dictation_app main.py
-    "$RUFF" format dictation_app main.py
+    "$RUFF" check --fix dictation_app main.py tests
+    "$RUFF" format dictation_app main.py tests
     echo "✅ Formatting & auto-fixing completed!"
 else
     echo "🔍 Running Ruff linter..."
-    "$RUFF" check dictation_app main.py
+    "$RUFF" check dictation_app main.py tests
     echo "🔍 Checking code formatting..."
-    "$RUFF" format --check dictation_app main.py
+    "$RUFF" format --check dictation_app main.py tests
     echo "✅ All linting and formatting checks passed!"
 fi

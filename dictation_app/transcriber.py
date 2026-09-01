@@ -1,12 +1,8 @@
 """Gemini API calls for speech-to-text transcription."""
 
-import logging
-import os
-import warnings
 from pathlib import Path
 
 try:
-    from google import genai
     from google.genai import errors as genai_errors
     from google.genai import types
 except ImportError:
@@ -14,18 +10,12 @@ except ImportError:
     genai_errors = None
 
 from .config import DEFAULT_MODEL, DICTATION_LANGUAGES
-from .logger import get_logger
-
-logging.getLogger("google.genai").setLevel(logging.ERROR)
-logging.getLogger("google").setLevel(logging.ERROR)
-warnings.filterwarnings("ignore", message=".*automatic function calling.*")
-
-logger = get_logger("Transcriber")
+from .gemini_client import GeminiClientBase
 
 
 def describe_error(exc: Exception) -> str:
     """Turn a transcription exception into a short, user-facing reason."""
-    if isinstance(exc, genai_errors.APIError):
+    if genai_errors is not None and isinstance(exc, genai_errors.APIError):
         if exc.code == 429:
             return "Rate limit hit (free-tier quota exceeded) - wait a bit and try again."
         if exc.code in (401, 403):
@@ -36,15 +26,9 @@ def describe_error(exc: Exception) -> str:
     return str(exc)
 
 
-class GeminiTranscriber:
+class GeminiTranscriber(GeminiClientBase):
     def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        if not self.api_key:
-            raise ValueError(
-                "Gemini API Key not found! Please set GEMINI_API_KEY in ~/.config/dictation/.env or export it."
-            )
-        self.model = model
-        self.client = genai.Client(api_key=self.api_key)
+        super().__init__(api_key, model, "Transcriber")
 
     def transcribe(self, audio_path: Path) -> str:
         """Transcribe audio file using Google GenAI SDK."""
@@ -93,14 +77,7 @@ class GeminiTranscriber:
             ),
         )
 
-        usage = response.usage_metadata
-        if usage:
-            logger.debug(
-                "Gemini tokens: prompt=%s thoughts=%s output=%s",
-                usage.prompt_token_count,
-                getattr(usage, "thoughts_token_count", 0),
-                usage.candidates_token_count,
-            )
+        self._log_token_usage(response.usage_metadata)
 
         text = response.text.strip() if response.text else ""
         return text

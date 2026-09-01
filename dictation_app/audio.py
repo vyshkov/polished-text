@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from ctypes import Structure, byref, c_uint32, c_void_p, create_string_buffer
 from pathlib import Path
+from typing import Any
 
 from .config import MIC_LEVEL_SCALE, MIN_SPEECH_DURATION, SILENCE_RMS_THRESHOLD
 from .logger import get_logger
@@ -71,8 +72,20 @@ def _get_coreaudio_libs():
             "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
         )
         return core_audio, core_foundation
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to load CoreAudio/CoreFoundation libraries: %s", e)
         return None, None
+
+
+def _cfstring_to_str(core_foundation, cfstr: c_void_p) -> str:
+    """Decode a CFStringRef to a Python str (UTF-8) and release it."""
+    core_foundation.CFStringGetLength.restype = ctypes.c_long
+    length = core_foundation.CFStringGetLength(cfstr)
+    max_size = core_foundation.CFStringGetMaximumSizeForEncoding(length, 0x08000100)  # UTF-8
+    buffer = create_string_buffer(max_size + 1)
+    core_foundation.CFStringGetCString(cfstr, buffer, max_size + 1, 0x08000100)
+    core_foundation.CFRelease(cfstr)
+    return buffer.value.decode("utf-8")
 
 
 def get_default_input_device_name() -> str:
@@ -108,18 +121,13 @@ def get_default_input_device_name() -> str:
         if status != 0 or not cfstr.value:
             return "Default Microphone"
 
-        core_foundation.CFStringGetLength.restype = ctypes.c_long
-        length = core_foundation.CFStringGetLength(cfstr)
-        max_size = core_foundation.CFStringGetMaximumSizeForEncoding(length, 0x08000100)  # UTF-8
-        buffer = create_string_buffer(max_size + 1)
-        core_foundation.CFStringGetCString(cfstr, buffer, max_size + 1, 0x08000100)
-        core_foundation.CFRelease(cfstr)
-        return buffer.value.decode("utf-8")
-    except Exception:
+        return _cfstring_to_str(core_foundation, cfstr)
+    except Exception as e:
+        logger.debug("Failed to look up default input device name: %s", e)
         return "Default Microphone"
 
 
-def get_audio_input_devices() -> list[dict[str, any]]:
+def get_audio_input_devices() -> list[dict[str, Any]]:
     """Return a list of available input audio devices on macOS."""
     core_audio, core_foundation = _get_coreaudio_libs()
     if not core_audio or not core_foundation:
@@ -176,13 +184,7 @@ def get_audio_input_devices() -> list[dict[str, any]]:
                     == 0
                     and cfstr.value
                 ):
-                    core_foundation.CFStringGetLength.restype = ctypes.c_long
-                    length = core_foundation.CFStringGetLength(cfstr)
-                    max_size = core_foundation.CFStringGetMaximumSizeForEncoding(length, 0x08000100)
-                    buffer = create_string_buffer(max_size + 1)
-                    core_foundation.CFStringGetCString(cfstr, buffer, max_size + 1, 0x08000100)
-                    core_foundation.CFRelease(cfstr)
-                    name = buffer.value.decode("utf-8")
+                    name = _cfstring_to_str(core_foundation, cfstr)
                     if name and name not in seen:
                         seen.add(name)
                         devices.append(
@@ -193,7 +195,8 @@ def get_audio_input_devices() -> list[dict[str, any]]:
                             }
                         )
         return devices
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to enumerate audio input devices: %s", e)
         return []
 
 
@@ -215,16 +218,10 @@ def kill_stale_recorder_processes():
         pass
 
 
-def get_audio_stats(path: Path) -> dict:
-    """Run 'sox <file> -n stat' and parse its stderr report into a dict of floats."""
-    try:
-        result = subprocess.run(
-            ["sox", str(path), "-n", "stat"], capture_output=True, text=True, timeout=5
-        )
-    except Exception:
-        return {}
+def _parse_sox_stats(stderr_text: str) -> dict[str, float]:
+    """Parse the 'key : value' lines of a 'sox -n stat' stderr report into a dict of floats."""
     stats = {}
-    for line in result.stderr.splitlines():
+    for line in stderr_text.splitlines():
         key, sep, value = line.partition(":")
         if not sep:
             continue
@@ -234,6 +231,18 @@ def get_audio_stats(path: Path) -> dict:
         except ValueError:
             continue
     return stats
+
+
+def get_audio_stats(path: Path) -> dict:
+    """Run 'sox <file> -n stat' and parse its stderr report into a dict of floats."""
+    try:
+        result = subprocess.run(
+            ["sox", str(path), "-n", "stat"], capture_output=True, text=True, timeout=5
+        )
+    except Exception as e:
+        logger.debug("Failed to run 'sox stat' on %s: %s", path, e)
+        return {}
+    return _parse_sox_stats(result.stderr)
 
 
 def has_speech(path: Path) -> bool:

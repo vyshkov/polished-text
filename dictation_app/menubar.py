@@ -128,7 +128,7 @@ class DictationMenuBar:
 
             self._build_menu()
         except Exception as e:
-            print(f"Menu bar initialization notice: {e}")
+            logger.warning("Menu bar initialization notice: %s", e)
             self.enabled = False
 
     def update_menu(self):

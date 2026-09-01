@@ -9,6 +9,8 @@ field, or an app that doesn't expose proper Accessibility bounds (some Electron/
 apps don't).
 """
 
+from .logger import get_logger
+
 try:
     import Quartz
     from ApplicationServices import (
@@ -31,6 +33,8 @@ try:
     HAS_ACCESSIBILITY = True
 except ImportError:
     HAS_ACCESSIBILITY = False
+
+logger = get_logger("Caret")
 
 
 def get_caret_screen_rect():
@@ -74,7 +78,8 @@ def get_caret_screen_rect():
         x = rect.origin.x
         y = main_screen_height - rect.origin.y - rect.size.height
         return (x, y, rect.size.height)
-    except Exception:
+    except Exception as e:
+        logger.debug("get_caret_screen_rect failed: %s", e)
         return None
 
 
@@ -115,5 +120,6 @@ def get_focused_window_rect():
         x = point.x
         y = main_screen_height - point.y - size.height
         return (x, y, size.width, size.height)
-    except Exception:
+    except Exception as e:
+        logger.debug("get_focused_window_rect failed: %s", e)
         return None

@@ -95,24 +95,28 @@ def _simulate_cmd_key(key_char: str):
         )
 
 
+def _get_system_focused_element():
+    """Get the system-wide focused AX element, falling back to the frontmost app's element."""
+    system_wide = AXUIElementCreateSystemWide()
+    err, focused = AXUIElementCopyAttributeValue(system_wide, kAXFocusedUIElementAttribute, None)
+    if (err or focused is None) and HAS_APPKIT:
+        ws = AppKit.NSWorkspace.sharedWorkspace()
+        front_app = ws.frontmostApplication()
+        if front_app:
+            app_elem = AXUIElementCreateApplication(front_app.processIdentifier())
+            err, focused = AXUIElementCopyAttributeValue(
+                app_elem, kAXFocusedUIElementAttribute, None
+            )
+    return err, focused
+
+
 def is_focused_element_editable(focused=None) -> bool:
     """Check if the given focused element (or system-wide focused element) is an editable field."""
     if not HAS_AX:
         return False
     try:
         if focused is None:
-            system_wide = AXUIElementCreateSystemWide()
-            err, focused = AXUIElementCopyAttributeValue(
-                system_wide, kAXFocusedUIElementAttribute, None
-            )
-            if (err or focused is None) and HAS_APPKIT:
-                ws = AppKit.NSWorkspace.sharedWorkspace()
-                front_app = ws.frontmostApplication()
-                if front_app:
-                    app_elem = AXUIElementCreateApplication(front_app.processIdentifier())
-                    err, focused = AXUIElementCopyAttributeValue(
-                        app_elem, kAXFocusedUIElementAttribute, None
-                    )
+            _, focused = _get_system_focused_element()
         if not focused:
             return False
 
@@ -151,7 +155,8 @@ def is_focused_element_editable(focused=None) -> bool:
             focused, kAXSelectedTextRangeAttribute, None
         )
         return not err and text_range is not None and not (role and role in readonly_roles)
-    except Exception:
+    except Exception as e:
+        logger.debug("is_focused_element_editable check failed: %s", e)
         return False
 
 
@@ -187,7 +192,8 @@ def is_likely_editable_context(focused=None) -> bool:
 
         # Default to True for editors, browsers, notes, word processors, chat apps
         return True
-    except Exception:
+    except Exception as e:
+        logger.debug("is_likely_editable_context check failed: %s", e)
         return True
 
 
@@ -196,18 +202,7 @@ def get_selected_text_ax() -> tuple[str | None, bool, object | None]:
     if not HAS_AX:
         return None, False, None
     try:
-        system_wide = AXUIElementCreateSystemWide()
-        err, focused = AXUIElementCopyAttributeValue(
-            system_wide, kAXFocusedUIElementAttribute, None
-        )
-        if (err or focused is None) and HAS_APPKIT:
-            ws = AppKit.NSWorkspace.sharedWorkspace()
-            front_app = ws.frontmostApplication()
-            if front_app:
-                app_elem = AXUIElementCreateApplication(front_app.processIdentifier())
-                err, focused = AXUIElementCopyAttributeValue(
-                    app_elem, kAXFocusedUIElementAttribute, None
-                )
+        err, focused = _get_system_focused_element()
 
         if not err and focused:
             editable = is_focused_element_editable(focused)
@@ -217,8 +212,8 @@ def get_selected_text_ax() -> tuple[str | None, bool, object | None]:
                 if text_str:
                     return text_str, editable, focused
             return None, editable, focused
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("get_selected_text_ax failed: %s", e)
     return None, False, None
 
 
@@ -341,8 +336,8 @@ def _is_web_browser_frontmost() -> bool:
                     "vivaldi",
                 ]
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("_is_web_browser_frontmost check failed: %s", e)
     return False
 
 
@@ -365,8 +360,8 @@ def replace_selected_text(text: str, focused_elem: object = None) -> bool:
                 if not err:
                     copy_to_clipboard(text)
                     return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Direct AX text replacement failed, falling back to paste: %s", e)
 
     # 2. For Web Browsers (Safari, Chrome, Arc, etc.) and fallback:
     # WebKit/Blink web content processes do not apply AX text mutations to web DOM (e.g. Gmail compose),

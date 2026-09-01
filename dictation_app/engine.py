@@ -30,6 +30,7 @@ from .config import (
 )
 from .corrector import GeminiCorrector
 from .history import HistoryManager
+from .hotkey_combo import ComboAction, RightCmdComboTracker
 from .hud import DictationHUD, run_console_event_loop
 from .logger import get_logger
 from .menubar import DictationMenuBar
@@ -105,12 +106,6 @@ class DictationEngine:
         self._transcriber = None
         self._corrector = None
         self.listener = None
-
-        # Tracking state for Right Command / modifier keys
-        self.key_press_time = 0
-        self.is_holding = False
-        self.is_alt_pressed = False
-        self.combo_detected = False
         self._is_correcting = False
 
     @property
@@ -250,7 +245,7 @@ class DictationEngine:
 
     def start_listener(self):
         if keyboard is None:
-            print("Error: 'pynput' is required for hotkey listening.")
+            logger.error("'pynput' is required for hotkey listening.")
             sys.exit(1)
 
         is_right_cmd = self.hotkey_str in ("cmd_r", "right_cmd", "right_command", "<cmd_r>")
@@ -282,7 +277,7 @@ class DictationEngine:
                 hotkeys = {self.hotkey_str: self.toggle_recording}
                 listener = keyboard.GlobalHotKeys(hotkeys)
             except Exception as e:
-                print(f"GlobalHotKeys error: {e}, falling back to single-key listener.")
+                logger.warning("GlobalHotKeys error: %s, falling back to single-key listener.", e)
                 listener = self._create_single_key_listener()
         else:
             listener = self._create_single_key_listener()
@@ -316,69 +311,39 @@ class DictationEngine:
 
     def _create_right_cmd_listener(self):
         """Dedicated intelligent listener for Right Command and Right Command + Option."""
+        tracker = RightCmdComboTracker()
+
+        def handle_action(action: ComboAction):
+            if action is ComboAction.START_RECORDING:
+                self.recorder.start()
+                self.hud.show_recording()
+            elif action is ComboAction.STOP_AND_TRANSCRIBE:
+                logger.debug("Push-to-talk released")
+                self.process_and_transcribe()
+            elif action is ComboAction.TRIGGER_CORRECTION:
+                if self.recorder.is_recording:
+                    self.recorder.cancel()
+                    self.hud.hide()
+                self.trigger_correction_async()
+            elif action is ComboAction.CANCEL_FALSE_TRIGGER:
+                self.recorder.cancel()
+                self.hud.show_cancelled()
 
         def on_press(key):
             if _is_alt_key(key):
-                self.is_alt_pressed = True
-                if self.is_holding:
-                    # User pressed Right Command first, then pressed Option -> trigger correction!
-                    self.combo_detected = True
-                    if self.recorder.is_recording:
-                        self.recorder.cancel()
-                        self.hud.hide()
-                    self.trigger_correction_async()
+                handle_action(tracker.on_alt_press())
                 return
-
             if key == keyboard.Key.cmd_r:
-                if self.is_alt_pressed:
-                    # Option was pressed first, now Right Command pressed -> trigger correction!
-                    self.combo_detected = True
-                    self.is_holding = True
-                    self.key_press_time = time.time()
-                    if self.recorder.is_recording:
-                        self.recorder.cancel()
-                        self.hud.hide()
-                    self.trigger_correction_async()
-                    return
-
-                if not self.is_holding:
-                    self.is_holding = True
-                    self.key_press_time = time.time()
-                    self.combo_detected = False
-
-                    if not self.recorder.is_recording:
-                        # Start recording
-                        self.recorder.start()
-                        self.hud.show_recording()
-                    else:
-                        # Second tap while recording -> stop and transcribe
-                        self.process_and_transcribe()
-            elif self.is_holding:
-                # If another non-Option key is pressed while holding Right Command
-                self.combo_detected = True
-                if self.recorder.is_recording and (time.time() - self.key_press_time < 0.4):
-                    # Cancel false-trigger recording
-                    self.recorder.cancel()
-                    self.hud.show_cancelled()
+                handle_action(tracker.on_cmd_r_press(self.recorder.is_recording))
+                return
+            handle_action(tracker.on_other_key_press(self.recorder.is_recording))
 
         def on_release(key):
             if _is_alt_key(key):
-                self.is_alt_pressed = False
+                handle_action(tracker.on_alt_release())
                 return
-
             if key == keyboard.Key.cmd_r:
-                held_duration = time.time() - self.key_press_time
-                self.is_holding = False
-
-                if self.combo_detected:
-                    self.combo_detected = False
-                    return
-
-                # If held for more than 0.5s, behave as push-to-talk (stop on release)
-                if held_duration >= 0.5 and self.recorder.is_recording:
-                    print("  [Push-to-talk released]")
-                    self.process_and_transcribe()
-                # If held for < 0.5s, it was a tap -> keep recording until next tap
+                handle_action(tracker.on_cmd_r_release(self.recorder.is_recording))
 
         return keyboard.Listener(on_press=on_press, on_release=on_release)
 

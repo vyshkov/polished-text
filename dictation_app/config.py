@@ -1,6 +1,7 @@
 """Environment-driven configuration and shared constants."""
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -22,6 +23,35 @@ CONFIG_DIR = Path.home() / ".config" / "dictation"
 if load_dotenv:
     load_dotenv(CONFIG_DIR / ".env")
 
+
+def _env_int(name: str, default: int) -> int:
+    """Read an int env var, falling back to `default` (with a warning) if malformed."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        sys.stderr.write(
+            f"Config warning: {name}={raw!r} is not a valid integer, using {default}.\n"
+        )
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a float env var, falling back to `default` (with a warning) if malformed."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        sys.stderr.write(
+            f"Config warning: {name}={raw!r} is not a valid number, using {default}.\n"
+        )
+        return default
+
+
 AUDIO_FILE = Path(tempfile.gettempdir()) / "gemini_dictation_temp.flac"
 DEFAULT_AUDIO_DEVICE = os.getenv("AUDIO_DEVICE", "default").strip()
 DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
@@ -34,18 +64,18 @@ ENABLE_HUD = os.getenv("ENABLE_HUD", "true").lower() in ("true", "1", "yes")
 ENABLE_MENUBAR = os.getenv("ENABLE_MENUBAR", "true").lower() in ("true", "1", "yes")
 HISTORY_FILE = CONFIG_DIR / "history.json"
 LOG_FILE = CONFIG_DIR / "app.log"
-LOG_RETENTION_HOURS = int(os.getenv("LOG_RETENTION_HOURS", "24"))
+LOG_RETENTION_HOURS = _env_int("LOG_RETENTION_HOURS", 24)
 HUD_STYLE = os.getenv("HUD_STYLE", "regular").strip().lower()
 # Float the HUD pill next to the text caret (via Accessibility APIs) instead of a fixed
 # top-of-screen spot; falls back to the fixed spot if the caret can't be located
 HUD_FOLLOW_CARET = os.getenv("HUD_FOLLOW_CARET", "true").lower() in ("true", "1", "yes")
 ENABLE_NOTIFICATIONS = os.getenv("ENABLE_NOTIFICATIONS", "true").lower() in ("true", "1", "yes")
 # Below this RMS amplitude (0.0-1.0 scale) a recording is treated as silence/background noise
-SILENCE_RMS_THRESHOLD = float(os.getenv("SILENCE_RMS_THRESHOLD", "0.008"))
-MIN_SPEECH_DURATION = float(os.getenv("MIN_SPEECH_DURATION", "0.3"))
+SILENCE_RMS_THRESHOLD = _env_float("SILENCE_RMS_THRESHOLD", 0.008)
+MIN_SPEECH_DURATION = _env_float("MIN_SPEECH_DURATION", 0.3)
 # Raw 16-bit PCM RMS value used as the reference point (before a sqrt/perceptual curve) for a
 # "full" HUD equalizer bar; lower it if the bars barely move, raise it if they pin at max
-MIC_LEVEL_SCALE = float(os.getenv("MIC_LEVEL_SCALE", "4000"))
+MIC_LEVEL_SCALE = _env_float("MIC_LEVEL_SCALE", 4000)
 # Comma-separated languages the model should expect; narrows its search space and avoids
 # misidentifying accented speech as an unrelated language
 DICTATION_LANGUAGES = [
