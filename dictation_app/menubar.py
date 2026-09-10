@@ -3,7 +3,13 @@
 from collections.abc import Callable
 
 from .clipboard import copy_to_clipboard
-from .config import ENABLE_MENUBAR, LOG_FILE
+from .config import (
+    AVAILABLE_MODELS,
+    DEFAULT_MODEL,
+    ENABLE_MENUBAR,
+    LOG_FILE,
+    get_model_display_name,
+)
 from .history import HistoryManager
 from .logger import clear_log_file, get_logger, open_log_file
 from .sound import play_sound
@@ -36,6 +42,11 @@ if HAS_PYOBJC:
             if self._menubar_ref:
                 text = sender.representedObject()
                 self._menubar_ref.on_copy_text(text)
+
+        def selectModel_(self, sender):
+            if self._menubar_ref:
+                model_id = sender.representedObject()
+                self._menubar_ref.on_select_model(model_id)
 
         def clearHistory_(self, sender):
             if self._menubar_ref:
@@ -79,13 +90,21 @@ class DictationMenuBar:
         history: HistoryManager,
         hud=None,
         get_active_device: Callable[[], str] | None = None,
+        get_current_model: Callable[[], str] | None = None,
+        on_select_model_callback: Callable[[str], None] | None = None,
         on_quit_callback: Callable[[], None] | None = None,
         enabled: bool = True,
+        available_models: list[tuple[str, str]] | None = None,
     ):
         self.history = history
         self.hud = hud
         self.get_active_device = get_active_device
+        self.get_current_model = get_current_model
+        self.on_select_model_callback = on_select_model_callback
         self.on_quit_callback = on_quit_callback
+        self.available_models = (
+            available_models if available_models is not None else AVAILABLE_MODELS
+        )
         self.enabled = enabled and HAS_PYOBJC and ENABLE_MENUBAR
 
         self.status_item = None
@@ -161,12 +180,40 @@ class DictationMenuBar:
         dev_item.setEnabled_(False)
         self.menu.addItem_(dev_item)
 
+        # 3. Model Selector Submenu
+        current_model = self.get_current_model() if self.get_current_model else DEFAULT_MODEL
+        current_display = get_model_display_name(current_model)
+        model_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            f"Model: {current_display}", None, ""
+        )
+        model_item.setImage_(_make_sf_symbol("cpu") or _make_sf_symbol("sparkles"))
+        model_item.setEnabled_(True)
+
+        model_submenu = AppKit.NSMenu.alloc().init()
+        model_submenu.setAutoenablesItems_(False)
+        for model_id, display_name in self.available_models:
+            sub_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                display_name, "selectModel:", ""
+            )
+            sub_item.setTarget_(self.delegate)
+            sub_item.setRepresentedObject_(model_id)
+            sub_item.setEnabled_(True)
+            if model_id == current_model:
+                sub_item.setState_(AppKit.NSControlStateValueOn)
+            else:
+                sub_item.setState_(AppKit.NSControlStateValueOff)
+            model_submenu.addItem_(sub_item)
+
+        model_item.setSubmenu_(model_submenu)
+        self.menu.addItem_(model_item)
+
         self.menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
-        # 3. Recent History Header
+        # 4. Recent History Header
         history_header = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "Recent Text (Click to copy):", None, ""
         )
+
         history_header.setImage_(_make_sf_symbol("clock"))
         history_header.setEnabled_(False)
         self.menu.addItem_(history_header)
@@ -268,6 +315,16 @@ class DictationMenuBar:
         quit_item.setTarget_(self.delegate)
         quit_item.setEnabled_(True)
         self.menu.addItem_(quit_item)
+
+    def on_select_model(self, model_id: str):
+        """Called when user selects a model from the Model dropdown."""
+        if not model_id:
+            return
+        logger.info("Model selected from menu bar: %s", model_id)
+        if self.on_select_model_callback:
+            self.on_select_model_callback(model_id)
+        self.update_menu()
+        play_sound("Pop")
 
     def on_copy_text(self, text: str):
         """Called when user clicks a recent history item."""

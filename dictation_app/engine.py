@@ -27,6 +27,8 @@ from .config import (
     ENABLE_MENUBAR,
     PASTE_AUTOMATICALLY,
     REPLACE_SELECTED_TEXT,
+    get_model_display_name,
+    save_model_to_env,
 )
 from .corrector import GeminiCorrector
 from .history import HistoryManager
@@ -92,13 +94,6 @@ class DictationEngine:
             on_level=self.hud.update_level,
             device_name=device_name,
         )
-        self.menubar = DictationMenuBar(
-            history=self.history,
-            hud=self.hud,
-            get_active_device=lambda: self.recorder.active_device_display,
-            on_quit_callback=self.stop,
-            enabled=ENABLE_MENUBAR,
-        )
         self.hotkey_str = hotkey_str.strip().lower()
         self.model = model
         self.corrector_model = corrector_model
@@ -107,6 +102,35 @@ class DictationEngine:
         self._corrector = None
         self.listener = None
         self._is_correcting = False
+
+        self.menubar = DictationMenuBar(
+            history=self.history,
+            hud=self.hud,
+            get_active_device=lambda: self.recorder.active_device_display,
+            get_current_model=lambda: self.model,
+            on_select_model_callback=self.set_model,
+            on_quit_callback=self.stop,
+            enabled=ENABLE_MENUBAR,
+        )
+
+    def set_model(self, new_model: str):
+        """Dynamically switch the speech-to-text model, reinitialize transcriber, and persist."""
+        if not new_model:
+            return
+        old_model = self.model
+        if old_model == new_model and self._transcriber is not None:
+            return
+
+        self.model = new_model
+        self._transcriber = GeminiTranscriber(model=new_model)
+        logger.info("Dictation model switched dynamically: %s -> %s", old_model, new_model)
+
+        save_model_to_env(new_model)
+
+        if self.hud and getattr(self.hud, "enabled", False):
+            display_name = get_model_display_name(new_model)
+            short_name = display_name.split("(")[0].strip()
+            self.hud.show_done(f"🤖  {short_name}")
 
     @property
     def transcriber(self):
