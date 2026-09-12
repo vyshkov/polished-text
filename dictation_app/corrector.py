@@ -7,6 +7,7 @@ except ImportError:
 
 from .config import DEFAULT_CORRECTOR_MODEL
 from .gemini_client import GeminiClientBase
+from .transcriber import get_model_thinking_config
 
 
 class GeminiCorrector(GeminiClientBase):
@@ -31,15 +32,19 @@ class GeminiCorrector(GeminiClientBase):
             "markdown formatting, or explanations."
         )
 
+        config_kwargs = {
+            "system_instruction": system_instruction,
+            "temperature": 0.2,
+            "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
+        }
+        thinking_cfg = get_model_thinking_config(self.model)
+        if thinking_cfg is not None:
+            config_kwargs["thinking_config"] = thinking_cfg
+
         response = self.client.models.generate_content(
             model=self.model,
             contents=[text],
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=0.2,
-                thinking_config=types.ThinkingConfig(thinking_level="minimal"),
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-            ),
+            config=types.GenerateContentConfig(**config_kwargs),
         )
 
         self._log_token_usage(response.usage_metadata)

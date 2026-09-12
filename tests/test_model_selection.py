@@ -10,14 +10,18 @@ from dictation_app.menubar import DictationMenuBar
 
 
 def test_available_models_structure():
-    assert len(AVAILABLE_MODELS) >= 4
+    assert len(AVAILABLE_MODELS) >= 8
     model_ids = [mid for mid, _ in AVAILABLE_MODELS]
+    assert "gemini-3.8-flash" in model_ids
+    assert "gemini-3.7-flash" in model_ids
     assert "gemini-3.6-flash" in model_ids
-    assert "gemini-3.5-flash-lite" in model_ids
     assert "gemini-3.5-flash" in model_ids
+    assert "gemini-3.5-flash-lite" in model_ids
 
 
 def test_get_model_display_name():
+    assert "3.8 Flash" in get_model_display_name("gemini-3.8-flash")
+    assert "3.7 Flash" in get_model_display_name("gemini-3.7-flash")
     assert "3.6 Flash" in get_model_display_name("gemini-3.6-flash")
     assert "3.5 Flash Lite" in get_model_display_name("gemini-3.5-flash-lite")
     # Unknown model falls back to ID
@@ -90,3 +94,22 @@ def test_engine_set_model(mock_transcriber_cls, mock_save_env):
         mock_save_env.assert_called_once_with("gemini-3.6-flash")
         mock_transcriber_cls.assert_called_with(model="gemini-3.6-flash")
         engine.hud.show_done.assert_called_once()
+
+
+def test_get_model_thinking_config():
+    from dictation_app.transcriber import get_model_thinking_config
+
+    cfg_38 = get_model_thinking_config("gemini-3.8-flash")
+    assert cfg_38 is not None
+    assert cfg_38.thinking_budget == 0
+
+    cfg_37 = get_model_thinking_config("gemini-3.7-flash")
+    assert cfg_37 is not None
+    assert cfg_37.thinking_budget == 0
+
+    cfg_36 = get_model_thinking_config("gemini-3.6-flash")
+    assert cfg_36 is not None
+    assert str(cfg_36.thinking_level).upper() in ("MINIMAL", "THINKINGLEVEL.MINIMAL")
+
+    cfg_transcribe = get_model_thinking_config("gemini-3.5-transcribe")
+    assert cfg_transcribe is None

@@ -58,17 +58,26 @@ DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 DEFAULT_CORRECTOR_MODEL = os.getenv("GEMINI_CORRECTOR_MODEL", "gemini-3.5-flash-lite")
 
 AVAILABLE_MODELS: list[tuple[str, str]] = [
+    ("gemini-3.8-flash", "Gemini 3.8 Flash (Latest)"),
+    ("gemini-3.7-flash", "Gemini 3.7 Flash"),
     ("gemini-3.6-flash", "Gemini 3.6 Flash (Fastest)"),
-    ("gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"),
     ("gemini-3.5-flash", "Gemini 3.5 Flash"),
+    ("gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"),
     ("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite"),
+    ("gemini-flash-latest", "Gemini Flash Latest"),
     ("gemini-flash-lite-latest", "Gemini Flash-Lite Latest"),
+    ("gemini-3.5-transcribe", "Gemini 3.5 Transcribe (Audio Optimized)"),
+    ("gemini-3-flash-preview", "Gemini 3 Flash Preview"),
 ]
 
 
-def get_model_display_name(model_id: str) -> str:
+def get_model_display_name(
+    model_id: str,
+    models: list[tuple[str, str]] | None = None,
+) -> str:
     """Return friendly display name for a model ID, or the model ID itself if unknown."""
-    for mid, name in AVAILABLE_MODELS:
+    model_list = models if models is not None else AVAILABLE_MODELS
+    for mid, name in model_list:
         if mid == model_id:
             return name
     return model_id

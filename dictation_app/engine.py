@@ -31,6 +31,7 @@ from .config import (
     save_model_to_env,
 )
 from .corrector import GeminiCorrector
+from .dialogs import prompt_model_switch_on_rate_limit
 from .history import HistoryManager
 from .hotkey_combo import ComboAction, RightCmdComboTracker
 from .hud import DictationHUD, run_console_event_loop
@@ -38,7 +39,7 @@ from .logger import get_logger
 from .menubar import DictationMenuBar
 from .notifications import notify
 from .sound import play_sound
-from .transcriber import GeminiTranscriber, describe_error
+from .transcriber import GeminiTranscriber, describe_error, is_rate_limit_error
 
 logger = get_logger("Engine")
 
@@ -113,7 +114,7 @@ class DictationEngine:
             enabled=ENABLE_MENUBAR,
         )
 
-    def set_model(self, new_model: str):
+    def set_model(self, new_model: str, update_hud: bool = True):
         """Dynamically switch the speech-to-text model, reinitialize transcriber, and persist."""
         if not new_model:
             return
@@ -127,7 +128,10 @@ class DictationEngine:
 
         save_model_to_env(new_model)
 
-        if self.hud and getattr(self.hud, "enabled", False):
+        if self.menubar and getattr(self.menubar, "enabled", False):
+            self.menubar.update_menu()
+
+        if update_hud and self.hud and getattr(self.hud, "enabled", False):
             display_name = get_model_display_name(new_model)
             short_name = display_name.split("(")[0].strip()
             self.hud.show_done(f"🤖  {short_name}")
@@ -162,10 +166,44 @@ class DictationEngine:
                 play_sound("Basso")
                 return
 
-            logger.info("Transcribing audio with Gemini (%s)...", self.transcriber.model)
-            start_t = time.time()
-            text = self.transcriber.transcribe(audio_file)
-            elapsed = time.time() - start_t
+            text = None
+            elapsed = 0.0
+            tried_models: set[str] = set()
+
+            while True:
+                current_model = self.model
+                tried_models.add(current_model)
+                logger.info("Transcribing audio with Gemini (%s)...", current_model)
+                start_t = time.time()
+                try:
+                    text = self.transcriber.transcribe(audio_file)
+                    elapsed = time.time() - start_t
+                    break
+                except Exception as e:
+                    if is_rate_limit_error(e):
+                        logger.warning(
+                            "Rate limit hit for model %s: %s", current_model, describe_error(e)
+                        )
+                        self.hud.hide()
+                        new_model = prompt_model_switch_on_rate_limit(
+                            current_model=current_model,
+                            tried_models=set(tried_models),
+                        )
+                        if new_model:
+                            logger.info(
+                                "Switching model to %s and retrying transcription with the same recording...",
+                                new_model,
+                            )
+                            self.set_model(new_model, update_hud=False)
+                            self.hud.show_transcribing()
+                            continue
+                        else:
+                            logger.info("User declined model switch on rate limit")
+                            self.hud.show_cancelled("⚠️  Rate limit")
+                            play_sound("Basso")
+                            return
+                    else:
+                        raise
 
             if text:
                 logger.info('Transcribed in %.2fs: "%s"', elapsed, text)
