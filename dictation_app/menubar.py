@@ -4,7 +4,9 @@ from collections.abc import Callable
 
 from .clipboard import copy_to_clipboard
 from .config import (
+    AVAILABLE_CORRECTOR_MODELS,
     AVAILABLE_MODELS,
+    DEFAULT_CORRECTOR_MODEL,
     DEFAULT_MODEL,
     ENABLE_MENUBAR,
     LOG_FILE,
@@ -47,6 +49,11 @@ if HAS_PYOBJC:
             if self._menubar_ref:
                 model_id = sender.representedObject()
                 self._menubar_ref.on_select_model(model_id)
+
+        def selectCorrectorModel_(self, sender):
+            if self._menubar_ref:
+                model_id = sender.representedObject()
+                self._menubar_ref.on_select_corrector_model(model_id)
 
         def clearHistory_(self, sender):
             if self._menubar_ref:
@@ -92,18 +99,28 @@ class DictationMenuBar:
         get_active_device: Callable[[], str] | None = None,
         get_current_model: Callable[[], str] | None = None,
         on_select_model_callback: Callable[[str], None] | None = None,
+        get_current_corrector_model: Callable[[], str] | None = None,
+        on_select_corrector_model_callback: Callable[[str], None] | None = None,
         on_quit_callback: Callable[[], None] | None = None,
         enabled: bool = True,
         available_models: list[tuple[str, str]] | None = None,
+        available_corrector_models: list[tuple[str, str]] | None = None,
     ):
         self.history = history
         self.hud = hud
         self.get_active_device = get_active_device
         self.get_current_model = get_current_model
         self.on_select_model_callback = on_select_model_callback
+        self.get_current_corrector_model = get_current_corrector_model
+        self.on_select_corrector_model_callback = on_select_corrector_model_callback
         self.on_quit_callback = on_quit_callback
         self.available_models = (
             available_models if available_models is not None else AVAILABLE_MODELS
+        )
+        self.available_corrector_models = (
+            available_corrector_models
+            if available_corrector_models is not None
+            else AVAILABLE_CORRECTOR_MODELS
         )
         self.enabled = enabled and HAS_PYOBJC and ENABLE_MENUBAR
 
@@ -180,13 +197,13 @@ class DictationMenuBar:
         dev_item.setEnabled_(False)
         self.menu.addItem_(dev_item)
 
-        # 3. Model Selector Submenu
+        # 3. Dictation Model Selector Submenu
         current_model = self.get_current_model() if self.get_current_model else DEFAULT_MODEL
-        current_display = get_model_display_name(current_model)
+        current_display = get_model_display_name(current_model, self.available_models)
         model_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"Model: {current_display}", None, ""
+            f"Dictation Model: {current_display}", None, ""
         )
-        model_item.setImage_(_make_sf_symbol("cpu") or _make_sf_symbol("sparkles"))
+        model_item.setImage_(_make_sf_symbol("waveform") or _make_sf_symbol("mic"))
         model_item.setEnabled_(True)
 
         model_submenu = AppKit.NSMenu.alloc().init()
@@ -206,6 +223,39 @@ class DictationMenuBar:
 
         model_item.setSubmenu_(model_submenu)
         self.menu.addItem_(model_item)
+
+        # 4. Polish Model Selector Submenu
+        current_corrector = (
+            self.get_current_corrector_model()
+            if self.get_current_corrector_model
+            else DEFAULT_CORRECTOR_MODEL
+        )
+        corrector_display = get_model_display_name(
+            current_corrector, self.available_corrector_models
+        )
+        corrector_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            f"Polish Model: {corrector_display}", None, ""
+        )
+        corrector_item.setImage_(_make_sf_symbol("sparkles"))
+        corrector_item.setEnabled_(True)
+
+        corrector_submenu = AppKit.NSMenu.alloc().init()
+        corrector_submenu.setAutoenablesItems_(False)
+        for model_id, display_name in self.available_corrector_models:
+            sub_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                display_name, "selectCorrectorModel:", ""
+            )
+            sub_item.setTarget_(self.delegate)
+            sub_item.setRepresentedObject_(model_id)
+            sub_item.setEnabled_(True)
+            if model_id == current_corrector:
+                sub_item.setState_(AppKit.NSControlStateValueOn)
+            else:
+                sub_item.setState_(AppKit.NSControlStateValueOff)
+            corrector_submenu.addItem_(sub_item)
+
+        corrector_item.setSubmenu_(corrector_submenu)
+        self.menu.addItem_(corrector_item)
 
         self.menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
@@ -317,12 +367,22 @@ class DictationMenuBar:
         self.menu.addItem_(quit_item)
 
     def on_select_model(self, model_id: str):
-        """Called when user selects a model from the Model dropdown."""
+        """Called when user selects a model from the Dictation Model dropdown."""
         if not model_id:
             return
-        logger.info("Model selected from menu bar: %s", model_id)
+        logger.info("Dictation model selected from menu bar: %s", model_id)
         if self.on_select_model_callback:
             self.on_select_model_callback(model_id)
+        self.update_menu()
+        play_sound("Pop")
+
+    def on_select_corrector_model(self, model_id: str):
+        """Called when user selects a model from the Polish Model dropdown."""
+        if not model_id:
+            return
+        logger.info("Corrector model selected from menu bar: %s", model_id)
+        if self.on_select_corrector_model_callback:
+            self.on_select_corrector_model_callback(model_id)
         self.update_menu()
         play_sound("Pop")
 

@@ -9,14 +9,29 @@ except ImportError:
     types = None
     genai_errors = None
 
+try:
+    from .azure_client import (
+        AzureSpeechAuthError,
+        AzureSpeechError,
+        AzureSpeechRateLimitError,
+        AzureTranscriber,
+    )
+except ImportError:
+    AzureSpeechAuthError = None
+    AzureSpeechError = None
+    AzureSpeechRateLimitError = None
+    AzureTranscriber = None
+
 from .config import DEFAULT_MODEL, DICTATION_LANGUAGES
 from .gemini_client import GeminiClientBase
 
 
 def is_rate_limit_error(exc: Exception | None) -> bool:
-    """Check if an exception represents a Gemini API rate limit or quota exhaustion (429)."""
+    """Check if an exception represents an API rate limit or quota exhaustion (429)."""
     if exc is None:
         return False
+    if AzureSpeechRateLimitError is not None and isinstance(exc, AzureSpeechRateLimitError):
+        return True
     if genai_errors is not None and isinstance(exc, genai_errors.APIError) and exc.code == 429:
         return True
     code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
@@ -35,14 +50,23 @@ def is_rate_limit_error(exc: Exception | None) -> bool:
             "quota exceeded",
             "free-tier quota",
             "quota_exceeded",
+            "too many requests",
         )
     )
 
 
 def describe_error(exc: Exception) -> str:
     """Turn a transcription exception into a short, user-facing reason."""
+    if AzureSpeechRateLimitError is not None and isinstance(exc, AzureSpeechRateLimitError):
+        return (
+            "Azure Speech rate limit hit (free-tier quota exceeded) - wait a bit or switch model."
+        )
     if is_rate_limit_error(exc):
         return "Rate limit hit (free-tier quota exceeded) - wait a bit and try again."
+    if AzureSpeechAuthError is not None and isinstance(exc, AzureSpeechAuthError):
+        return "Azure Speech API key or region rejected - check AZURE_SPEECH_KEY and AZURE_SPEECH_REGION in ~/.config/dictation/.env."
+    if AzureSpeechError is not None and isinstance(exc, AzureSpeechError):
+        return f"Azure Speech error: {exc.details or exc}"
     if genai_errors is not None and isinstance(exc, genai_errors.APIError):
         if exc.code in (401, 403):
             return "API key rejected - check GEMINI_API_KEY in ~/.config/dictation/.env."
@@ -123,3 +147,14 @@ class GeminiTranscriber(GeminiClientBase):
 
         text = response.text.strip() if response.text else ""
         return text
+
+
+def get_transcriber(model: str = DEFAULT_MODEL):
+    """Return appropriate speech-to-text transcriber instance based on model name."""
+    if model.startswith("azure"):
+        if AzureTranscriber is None:
+            raise ImportError(
+                "Azure Speech SDK is not available. Please install 'azure-cognitiveservices-speech'."
+            )
+        return AzureTranscriber(model=model)
+    return GeminiTranscriber(model=model)

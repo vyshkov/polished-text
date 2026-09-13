@@ -78,7 +78,7 @@ def prompt_model_switch_on_rate_limit(
     sugg_escaped = _escape_applescript(suggested_display)
 
     prompt_text = (
-        f"The Gemini rate limit was reached for {curr_escaped}.\\n\\n"
+        f"The rate limit quota was reached for {curr_escaped}.\\n\\n"
         f"Would you like to switch to {sugg_escaped} and retry with the same recording?"
     )
 
@@ -157,7 +157,7 @@ def _prompt_model_picker(
         tell application "System Events"
             activate
             set choiceList to {names_list_str}
-            set chosen to choose from list choiceList with prompt "Select a Gemini model to retry with:" with title "Gemini Dictation - Select Model" default items {{"{default_escaped}"}} OK button name "Switch & Retry" cancel button name "Cancel"
+            set chosen to choose from list choiceList with prompt "Select a model to retry with:" with title "Dictation - Select Model" default items {{"{default_escaped}"}} OK button name "Switch & Retry" cancel button name "Cancel"
             if chosen is false then
                 return "CANCEL"
             else
@@ -201,11 +201,11 @@ def _show_all_exhausted_dialog(timeout: float = 30.0):
     try
         tell application "System Events"
             activate
-            display dialog "All available Gemini models have reached their rate limit quota.\n\nPlease wait a bit before dictating again." buttons {"OK"} default button "OK" with title "Gemini Dictation - Quota Exceeded" with icon stop
+            display dialog "All available dictation models have reached their rate limit quota.\n\nPlease wait a bit before dictating again." buttons {"OK"} default button "OK" with title "Dictation - Quota Exceeded" with icon stop
         end tell
     on error
         try
-            display dialog "All available Gemini models have reached their rate limit quota.\n\nPlease wait a bit before dictating again." buttons {"OK"} default button "OK" with title "Gemini Dictation - Quota Exceeded" with icon stop
+            display dialog "All available dictation models have reached their rate limit quota.\n\nPlease wait a bit before dictating again." buttons {"OK"} default button "OK" with title "Dictation - Quota Exceeded" with icon stop
         on error
             return
         end try

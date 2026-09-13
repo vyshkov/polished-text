@@ -41,3 +41,26 @@ def test_generic_api_error_includes_code_and_message():
 
 def test_non_api_error_falls_back_to_str():
     assert describe_error(ValueError("network down")) == "network down"
+
+
+def test_azure_rate_limit_error():
+    from dictation_app.azure_client import AzureSpeechRateLimitError
+
+    err = AzureSpeechRateLimitError("429 Too Many Requests (Quota Exceeded)", code=429)
+    assert is_rate_limit_error(err) is True
+    assert "Azure Speech rate limit hit" in describe_error(err)
+
+
+def test_azure_auth_error_message():
+    from dictation_app.azure_client import AzureSpeechAuthError
+
+    err = AzureSpeechAuthError("Authentication error (401)", code=401)
+    assert is_rate_limit_error(err) is False
+    assert "AZURE_SPEECH_KEY" in describe_error(err)
+
+
+def test_azure_generic_error_message():
+    from dictation_app.azure_client import AzureSpeechError
+
+    err = AzureSpeechError("Internal server error", code=500)
+    assert "Azure Speech error: Internal server error" in describe_error(err)

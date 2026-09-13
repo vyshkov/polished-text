@@ -177,3 +177,56 @@ def test_process_and_transcribe_non_rate_limit_error_does_not_prompt_switch(
         mock_prompt.assert_not_called()
         mock_notify.assert_called_once()
         assert "API key rejected" in mock_notify.call_args[0][1]
+
+
+@patch("dictation_app.engine.has_speech", return_value=True)
+@patch("dictation_app.engine.paste_text")
+@patch("dictation_app.engine.play_sound")
+@patch("dictation_app.engine.save_model_to_env")
+@patch("dictation_app.engine.prompt_model_switch_on_rate_limit")
+def test_process_and_transcribe_retries_on_azure_rate_limit_to_gemini(
+    mock_prompt,
+    mock_save_env,
+    mock_play_sound,
+    mock_paste,
+    mock_has_speech,
+    tmp_path,
+):
+    from dictation_app.azure_client import AzureSpeechRateLimitError
+
+    fake_audio = tmp_path / "recording.flac"
+    fake_audio.write_bytes(b"fake_audio_bytes")
+
+    mock_prompt.return_value = "gemini-3.6-flash"
+
+    with patch("dictation_app.engine.DictationMenuBar"):
+        engine = DictationEngine(model="azure-speech")
+        engine.hud = MagicMock()
+        engine.recorder = MagicMock()
+        engine.recorder.stop.return_value = fake_audio
+
+        mock_azure_tx = MagicMock()
+        mock_azure_tx.transcribe.side_effect = AzureSpeechRateLimitError(
+            "WebSocket upgrade failed: 429 Too Many Requests (Quota Exceeded)", code=429
+        )
+
+        mock_gemini_tx = MagicMock()
+        mock_gemini_tx.transcribe.return_value = "Transcribed by Gemini fallback"
+
+        with (
+            patch.object(
+                engine, "_create_transcriber", side_effect=[mock_azure_tx, mock_gemini_tx]
+            ),
+        ):
+            engine.process_and_transcribe()
+
+        mock_prompt.assert_called_once_with(
+            current_model="azure-speech",
+            tried_models={"azure-speech"},
+        )
+        assert engine.model == "gemini-3.6-flash"
+        mock_azure_tx.transcribe.assert_called_once_with(fake_audio)
+        mock_gemini_tx.transcribe.assert_called_once_with(fake_audio)
+        mock_paste.assert_called_once_with("Transcribed by Gemini fallback")
+        mock_play_sound.assert_called_with("Hero")
+        mock_save_env.assert_called_with("gemini-3.6-flash")

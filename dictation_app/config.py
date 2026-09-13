@@ -57,7 +57,12 @@ DEFAULT_AUDIO_DEVICE = os.getenv("AUDIO_DEVICE", "default").strip()
 DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 DEFAULT_CORRECTOR_MODEL = os.getenv("GEMINI_CORRECTOR_MODEL", "gemini-3.5-flash-lite")
 
+AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY", "").strip()
+AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION", "eastus").strip()
+AZURE_SPEECH_URL = os.getenv("AZURE_SPEECH_URL", "").strip()
+
 AVAILABLE_MODELS: list[tuple[str, str]] = [
+    ("azure-speech", "Azure Speech (Standard Dictation)"),
     ("gemini-3.8-flash", "Gemini 3.8 Flash (Latest)"),
     ("gemini-3.7-flash", "Gemini 3.7 Flash"),
     ("gemini-3.6-flash", "Gemini 3.6 Flash (Fastest)"),
@@ -70,6 +75,17 @@ AVAILABLE_MODELS: list[tuple[str, str]] = [
     ("gemini-3-flash-preview", "Gemini 3 Flash Preview"),
 ]
 
+AVAILABLE_CORRECTOR_MODELS: list[tuple[str, str]] = [
+    ("gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite (Fastest)"),
+    ("gemini-3.6-flash", "Gemini 3.6 Flash"),
+    ("gemini-3.8-flash", "Gemini 3.8 Flash (Latest)"),
+    ("gemini-3.7-flash", "Gemini 3.7 Flash"),
+    ("gemini-3.5-flash", "Gemini 3.5 Flash"),
+    ("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite"),
+    ("gemini-flash-latest", "Gemini Flash Latest"),
+    ("gemini-flash-lite-latest", "Gemini Flash-Lite Latest"),
+]
+
 
 def get_model_display_name(
     model_id: str,
@@ -80,37 +96,52 @@ def get_model_display_name(
     for mid, name in model_list:
         if mid == model_id:
             return name
+    # Also check corrector models if not in the requested list
+    if models is None:
+        for mid, name in AVAILABLE_CORRECTOR_MODELS:
+            if mid == model_id:
+                return name
     return model_id
 
 
-def save_model_to_env(model_id: str, env_path: Path | None = None) -> bool:
-    """Persist the selected model to ~/.config/dictation/.env so it survives restarts."""
+def _save_env_var(var_name: str, value: str, env_path: Path | None = None) -> bool:
+    """Persist an environment variable key=value to ~/.config/dictation/.env."""
     target_path = env_path or (CONFIG_DIR / ".env")
     try:
         lines = []
         found = False
+        prefix_pattern = f"{var_name}="
+        export_pattern = f"export {var_name}="
         if target_path.exists():
             with open(target_path, encoding="utf-8") as f:
                 for line in f:
                     stripped = line.strip()
-                    if stripped.startswith("GEMINI_MODEL=") or stripped.startswith(
-                        "export GEMINI_MODEL="
-                    ):
+                    if stripped.startswith(prefix_pattern) or stripped.startswith(export_pattern):
                         prefix = "export " if stripped.startswith("export ") else ""
-                        lines.append(f"{prefix}GEMINI_MODEL={model_id}\n")
+                        lines.append(f"{prefix}{var_name}={value}\n")
                         found = True
                     else:
                         lines.append(line)
         if not found:
-            lines.append(f"GEMINI_MODEL={model_id}\n")
+            lines.append(f"{var_name}={value}\n")
 
         target_path.parent.mkdir(parents=True, exist_ok=True)
         with open(target_path, "w", encoding="utf-8") as f:
             f.writelines(lines)
         return True
     except Exception as e:
-        sys.stderr.write(f"Config notice: failed to save model to {target_path}: {e}\n")
+        sys.stderr.write(f"Config notice: failed to save {var_name} to {target_path}: {e}\n")
         return False
+
+
+def save_model_to_env(model_id: str, env_path: Path | None = None) -> bool:
+    """Persist the selected dictation model to ~/.config/dictation/.env so it survives restarts."""
+    return _save_env_var("GEMINI_MODEL", model_id, env_path=env_path)
+
+
+def save_corrector_model_to_env(model_id: str, env_path: Path | None = None) -> bool:
+    """Persist the selected text corrector model to ~/.config/dictation/.env so it survives restarts."""
+    return _save_env_var("GEMINI_CORRECTOR_MODEL", model_id, env_path=env_path)
 
 
 DEFAULT_HOTKEY = os.getenv("HOTKEY", "cmd_r").strip().lower()
@@ -140,3 +171,60 @@ DICTATION_LANGUAGES = [
     for lang in os.getenv("DICTATION_LANGUAGES", "English,Ukrainian").split(",")
     if lang.strip()
 ]
+
+# Common language names mapped to BCP-47 locale tags required by Azure Speech
+LANGUAGE_NAME_TO_BCP47: dict[str, str] = {
+    "english": "en-US",
+    "en": "en-US",
+    "ukrainian": "uk-UA",
+    "uk": "uk-UA",
+    "spanish": "es-ES",
+    "es": "es-ES",
+    "french": "fr-FR",
+    "fr": "fr-FR",
+    "german": "de-DE",
+    "de": "de-DE",
+    "italian": "it-IT",
+    "it": "it-IT",
+    "polish": "pl-PL",
+    "pl": "pl-PL",
+    "portuguese": "pt-PT",
+    "pt": "pt-PT",
+    "japanese": "ja-JP",
+    "ja": "ja-JP",
+    "chinese": "zh-CN",
+    "zh": "zh-CN",
+    "korean": "ko-KR",
+    "ko": "ko-KR",
+    "dutch": "nl-NL",
+    "nl": "nl-NL",
+    "russian": "ru-RU",
+    "ru": "ru-RU",
+    "turkish": "tr-TR",
+    "tr": "tr-TR",
+    "swedish": "sv-SE",
+    "sv": "sv-SE",
+    "czech": "cs-CZ",
+    "cs": "cs-CZ",
+    "hindi": "hi-IN",
+    "hi": "hi-IN",
+}
+
+
+def resolve_azure_language_tags(languages: list[str] | None = None) -> list[str]:
+    """Convert language names or codes to Azure-compatible BCP-47 locale tags (e.g. 'en-US')."""
+    raw_langs = languages if languages is not None else DICTATION_LANGUAGES
+    tags: list[str] = []
+    for lang in raw_langs:
+        cleaned = lang.strip()
+        lowered = cleaned.lower()
+        if lowered in LANGUAGE_NAME_TO_BCP47:
+            tag = LANGUAGE_NAME_TO_BCP47[lowered]
+        elif "-" in cleaned:
+            # Already formatted like 'en-US' or 'uk-UA'
+            tag = cleaned
+        else:
+            tag = cleaned
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags or ["en-US"]

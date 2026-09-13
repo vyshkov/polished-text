@@ -28,6 +28,7 @@ from .config import (
     PASTE_AUTOMATICALLY,
     REPLACE_SELECTED_TEXT,
     get_model_display_name,
+    save_corrector_model_to_env,
     save_model_to_env,
 )
 from .corrector import GeminiCorrector
@@ -39,7 +40,12 @@ from .logger import get_logger
 from .menubar import DictationMenuBar
 from .notifications import notify
 from .sound import play_sound
-from .transcriber import GeminiTranscriber, describe_error, is_rate_limit_error
+from .transcriber import (
+    GeminiTranscriber,
+    describe_error,
+    get_transcriber,
+    is_rate_limit_error,
+)
 
 logger = get_logger("Engine")
 
@@ -110,9 +116,16 @@ class DictationEngine:
             get_active_device=lambda: self.recorder.active_device_display,
             get_current_model=lambda: self.model,
             on_select_model_callback=self.set_model,
+            get_current_corrector_model=lambda: self.corrector_model,
+            on_select_corrector_model_callback=self.set_corrector_model,
             on_quit_callback=self.stop,
             enabled=ENABLE_MENUBAR,
         )
+
+    def _create_transcriber(self, model: str):
+        if model.startswith("azure"):
+            return get_transcriber(model=model)
+        return GeminiTranscriber(model=model)
 
     def set_model(self, new_model: str, update_hud: bool = True):
         """Dynamically switch the speech-to-text model, reinitialize transcriber, and persist."""
@@ -123,7 +136,7 @@ class DictationEngine:
             return
 
         self.model = new_model
-        self._transcriber = GeminiTranscriber(model=new_model)
+        self._transcriber = self._create_transcriber(new_model)
         logger.info("Dictation model switched dynamically: %s -> %s", old_model, new_model)
 
         save_model_to_env(new_model)
@@ -136,10 +149,32 @@ class DictationEngine:
             short_name = display_name.split("(")[0].strip()
             self.hud.show_done(f"🤖  {short_name}")
 
+    def set_corrector_model(self, new_model: str, update_hud: bool = True):
+        """Dynamically switch the text corrector model, reinitialize corrector, and persist."""
+        if not new_model:
+            return
+        old_model = self.corrector_model
+        if old_model == new_model and self._corrector is not None:
+            return
+
+        self.corrector_model = new_model
+        self._corrector = GeminiCorrector(model=new_model)
+        logger.info("Corrector model switched dynamically: %s -> %s", old_model, new_model)
+
+        save_corrector_model_to_env(new_model)
+
+        if self.menubar and getattr(self.menubar, "enabled", False):
+            self.menubar.update_menu()
+
+        if update_hud and self.hud and getattr(self.hud, "enabled", False):
+            display_name = get_model_display_name(new_model)
+            short_name = display_name.split("(")[0].strip()
+            self.hud.show_done(f"✨  {short_name}")
+
     @property
     def transcriber(self):
         if self._transcriber is None:
-            self._transcriber = GeminiTranscriber(model=self.model)
+            self._transcriber = self._create_transcriber(self.model)
         return self._transcriber
 
     @property
@@ -173,7 +208,7 @@ class DictationEngine:
             while True:
                 current_model = self.model
                 tried_models.add(current_model)
-                logger.info("Transcribing audio with Gemini (%s)...", current_model)
+                logger.info("Transcribing audio (%s)...", current_model)
                 start_t = time.time()
                 try:
                     text = self.transcriber.transcribe(audio_file)
@@ -221,7 +256,7 @@ class DictationEngine:
             logger.error("Transcription error: %s", reason)
             self.hud.show_cancelled("❌  Error")
             play_sound("Basso")
-            notify("Dictation failed", reason, subtitle="Gemini transcription error")
+            notify("Dictation failed", reason, subtitle="Transcription error")
 
     def correct_selection(self):
         """Retrieve selected text on screen, polish it with Gemini, replace in-place if editable, and log."""

@@ -1,8 +1,10 @@
 from unittest.mock import MagicMock, patch
 
 from dictation_app.config import (
+    AVAILABLE_CORRECTOR_MODELS,
     AVAILABLE_MODELS,
     get_model_display_name,
+    save_corrector_model_to_env,
     save_model_to_env,
 )
 from dictation_app.engine import DictationEngine
@@ -12,6 +14,7 @@ from dictation_app.menubar import DictationMenuBar
 def test_available_models_structure():
     assert len(AVAILABLE_MODELS) >= 8
     model_ids = [mid for mid, _ in AVAILABLE_MODELS]
+    assert "azure-speech" in model_ids
     assert "gemini-3.8-flash" in model_ids
     assert "gemini-3.7-flash" in model_ids
     assert "gemini-3.6-flash" in model_ids
@@ -20,6 +23,7 @@ def test_available_models_structure():
 
 
 def test_get_model_display_name():
+    assert "Azure Speech" in get_model_display_name("azure-speech")
     assert "3.8 Flash" in get_model_display_name("gemini-3.8-flash")
     assert "3.7 Flash" in get_model_display_name("gemini-3.7-flash")
     assert "3.6 Flash" in get_model_display_name("gemini-3.6-flash")
@@ -96,6 +100,21 @@ def test_engine_set_model(mock_transcriber_cls, mock_save_env):
         engine.hud.show_done.assert_called_once()
 
 
+@patch("dictation_app.engine.save_model_to_env")
+@patch("dictation_app.engine.get_transcriber")
+def test_engine_set_model_azure(mock_get_transcriber, mock_save_env):
+    with patch("dictation_app.engine.DictationMenuBar"):
+        engine = DictationEngine(model="gemini-3.6-flash")
+        engine.hud = MagicMock()
+
+        engine.set_model("azure-speech")
+
+        assert engine.model == "azure-speech"
+        mock_save_env.assert_called_once_with("azure-speech")
+        mock_get_transcriber.assert_called_with(model="azure-speech")
+        engine.hud.show_done.assert_called_once()
+
+
 def test_get_model_thinking_config():
     from dictation_app.transcriber import get_model_thinking_config
 
@@ -113,3 +132,64 @@ def test_get_model_thinking_config():
 
     cfg_transcribe = get_model_thinking_config("gemini-3.5-transcribe")
     assert cfg_transcribe is None
+
+
+def test_available_corrector_models_structure():
+    assert len(AVAILABLE_CORRECTOR_MODELS) >= 5
+    model_ids = [mid for mid, _ in AVAILABLE_CORRECTOR_MODELS]
+    assert "gemini-3.5-flash-lite" in model_ids
+    assert "gemini-3.6-flash" in model_ids
+    assert "gemini-3.8-flash" in model_ids
+    # Audio-only models should NOT be present in corrector models
+    assert "azure-speech" not in model_ids
+    assert "gemini-3.5-transcribe" not in model_ids
+
+
+def test_save_corrector_model_to_env_updates_existing(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("FOO=bar\nGEMINI_CORRECTOR_MODEL=gemini-3.5-flash-lite\nBAZ=1\n")
+
+    assert save_corrector_model_to_env("gemini-3.6-flash", env_path=env_file) is True
+    content = env_file.read_text()
+    assert "GEMINI_CORRECTOR_MODEL=gemini-3.6-flash" in content
+    assert "FOO=bar" in content
+    assert "gemini-3.5-flash-lite" not in content
+
+
+def test_save_corrector_model_to_env_preserves_export(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("export GEMINI_CORRECTOR_MODEL=gemini-3.5-flash-lite\n")
+
+    assert save_corrector_model_to_env("gemini-3.6-flash", env_path=env_file) is True
+    content = env_file.read_text()
+    assert content == "export GEMINI_CORRECTOR_MODEL=gemini-3.6-flash\n"
+
+
+def test_menubar_on_select_corrector_model_triggers_callback():
+    history_mock = MagicMock()
+    callback_mock = MagicMock()
+    menubar = DictationMenuBar(
+        history=history_mock,
+        get_current_corrector_model=lambda: "gemini-3.5-flash-lite",
+        on_select_corrector_model_callback=callback_mock,
+        enabled=False,
+    )
+    with patch("dictation_app.menubar.play_sound"):
+        menubar.on_select_corrector_model("gemini-3.6-flash")
+
+    callback_mock.assert_called_once_with("gemini-3.6-flash")
+
+
+@patch("dictation_app.engine.save_corrector_model_to_env")
+@patch("dictation_app.engine.GeminiCorrector")
+def test_engine_set_corrector_model(mock_corrector_cls, mock_save_env):
+    with patch("dictation_app.engine.DictationMenuBar"):
+        engine = DictationEngine(corrector_model="gemini-3.5-flash-lite")
+        engine.hud = MagicMock()
+
+        engine.set_corrector_model("gemini-3.6-flash")
+
+        assert engine.corrector_model == "gemini-3.6-flash"
+        mock_save_env.assert_called_once_with("gemini-3.6-flash")
+        mock_corrector_cls.assert_called_with(model="gemini-3.6-flash")
+        engine.hud.show_done.assert_called_once()
