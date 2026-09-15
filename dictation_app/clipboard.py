@@ -397,3 +397,25 @@ def paste_text(text: str):
         # Brief pause to ensure physical modifier keys settle
         time.sleep(0.06)
         _simulate_cmd_key("v")
+
+
+def get_clipboard_text() -> str | None:
+    """Retrieve the current plain text string from the system clipboard."""
+    if HAS_APPKIT:
+        try:
+            pb = AppKit.NSPasteboard.generalPasteboard()
+            text = pb.stringForType_(AppKit.NSPasteboardTypeString)
+            return str(text) if text else None
+        except Exception as e:
+            logger.debug("NSPasteboard get_clipboard_text error: %s", e)
+    if pyperclip:
+        try:
+            text = pyperclip.paste()
+            return str(text) if text else None
+        except Exception:
+            pass
+    try:
+        text = subprocess.check_output(["pbpaste"], text=True, timeout=1.0)
+        return str(text) if text else None
+    except Exception:
+        return None

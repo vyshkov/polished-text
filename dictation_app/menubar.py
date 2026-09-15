@@ -55,6 +55,10 @@ if HAS_PYOBJC:
                 model_id = sender.representedObject()
                 self._menubar_ref.on_select_corrector_model(model_id)
 
+        def writeText_(self, sender):
+            if self._menubar_ref:
+                self._menubar_ref.on_write()
+
         def clearHistory_(self, sender):
             if self._menubar_ref:
                 self._menubar_ref.on_clear_history()
@@ -101,6 +105,7 @@ class DictationMenuBar:
         on_select_model_callback: Callable[[str], None] | None = None,
         get_current_corrector_model: Callable[[], str] | None = None,
         on_select_corrector_model_callback: Callable[[str], None] | None = None,
+        on_write_callback: Callable[[], None] | None = None,
         on_quit_callback: Callable[[], None] | None = None,
         enabled: bool = True,
         available_models: list[tuple[str, str]] | None = None,
@@ -113,6 +118,7 @@ class DictationMenuBar:
         self.on_select_model_callback = on_select_model_callback
         self.get_current_corrector_model = get_current_corrector_model
         self.on_select_corrector_model_callback = on_select_corrector_model_callback
+        self.on_write_callback = on_write_callback
         self.on_quit_callback = on_quit_callback
         self.available_models = (
             available_models if available_models is not None else AVAILABLE_MODELS
@@ -257,6 +263,14 @@ class DictationMenuBar:
         corrector_item.setSubmenu_(corrector_submenu)
         self.menu.addItem_(corrector_item)
 
+        write_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Write with Gemini...", "writeText:", ""
+        )
+        write_item.setImage_(_make_sf_symbol("pencil.line") or _make_sf_symbol("pencil"))
+        write_item.setTarget_(self.delegate)
+        write_item.setEnabled_(True)
+        self.menu.addItem_(write_item)
+
         self.menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
         # 4. Recent History Header
@@ -280,7 +294,12 @@ class DictationMenuBar:
             for item in self._items_cache:
                 raw_text = item.get("text", "")
                 kind = item.get("kind", "dictation")
-                symbol_name = "quote.bubble" if kind == "dictation" else "sparkles"
+                if kind == "dictation":
+                    symbol_name = "quote.bubble"
+                elif kind == "write":
+                    symbol_name = "pencil"
+                else:
+                    symbol_name = "sparkles"
 
                 # Format single-line preview
                 clean_line = " ".join(raw_text.split())
@@ -324,6 +343,13 @@ class DictationMenuBar:
         info_correct.setImage_(_make_sf_symbol("option"))
         info_correct.setEnabled_(False)
         self.menu.addItem_(info_correct)
+
+        info_write = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Write: ⌃ + ⌥ + Right ⌘", None, ""
+        )
+        info_write.setImage_(_make_sf_symbol("pencil"))
+        info_write.setEnabled_(False)
+        self.menu.addItem_(info_write)
 
         self.menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
@@ -385,6 +411,11 @@ class DictationMenuBar:
             self.on_select_corrector_model_callback(model_id)
         self.update_menu()
         play_sound("Pop")
+
+    def on_write(self):
+        """Called when user clicks 'Write with Gemini...' from the menu bar."""
+        if self.on_write_callback:
+            self.on_write_callback()
 
     def on_copy_text(self, text: str):
         """Called when user clicks a recent history item."""

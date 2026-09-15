@@ -32,6 +32,12 @@ A native macOS status item in the top panel (menu bar):
 - **Read-Only Safety:** If the selected text is in a read-only document or web page, it copies the corrected text to your clipboard without altering the screen.
 - **Detailed Console Log:** Outputs a before/after comparison and performance metrics in the console.
 
+### 3. Write Text with Gemini: Control + Option + Right Command (⌃ + ⌥ + Right ⌘)
+- **Write Dialog Pop-up:** Press **Control + Option + Right Command** from any app to open the native writing prompt.
+- **Prompt Input:** Enter what you want written (e.g. an email reply, paragraph, summary). Press **Return** to submit immediately, or **Esc** to cancel.
+- **Clipboard Context Checkbox:** Check the box to attach your current clipboard buffer contents as reference material for Gemini.
+- **Auto-Paste & History:** Generates the text using the selected Gemini corrector model, adds it to your recent history, copies to clipboard, and automatically pastes it at your cursor!
+
 ---
 
 ## 🚀 Quick Setup & Launching

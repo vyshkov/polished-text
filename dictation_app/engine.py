@@ -12,6 +12,7 @@ except ImportError:
 from .audio import AudioRecorder, has_speech
 from .clipboard import (
     copy_to_clipboard,
+    get_clipboard_text,
     get_selected_text_info,
     is_likely_editable_context,
     paste_text,
@@ -19,6 +20,7 @@ from .clipboard import (
 )
 from .config import (
     AUDIO_FILE,
+    AVAILABLE_CORRECTOR_MODELS,
     DEFAULT_AUDIO_DEVICE,
     DEFAULT_CORRECTOR_MODEL,
     DEFAULT_HOTKEY,
@@ -32,7 +34,12 @@ from .config import (
     save_model_to_env,
 )
 from .corrector import GeminiCorrector
-from .dialogs import prompt_model_switch_on_rate_limit
+from .dialogs import (
+    get_frontmost_app,
+    prompt_model_switch_on_rate_limit,
+    prompt_write_dialog,
+    reactivate_app,
+)
 from .history import HistoryManager
 from .hotkey_combo import ComboAction, RightCmdComboTracker
 from .hud import DictationHUD, run_console_event_loop
@@ -46,6 +53,7 @@ from .transcriber import (
     get_transcriber,
     is_rate_limit_error,
 )
+from .writer import GeminiWriter
 
 logger = get_logger("Engine")
 
@@ -63,6 +71,24 @@ def _is_alt_key(key) -> bool:
     try:
         k_str = str(key).lower()
         if "alt" in k_str or "option" in k_str:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _is_ctrl_key(key) -> bool:
+    if keyboard is None:
+        return False
+    if key in (
+        keyboard.Key.ctrl,
+        getattr(keyboard.Key, "ctrl_l", None),
+        getattr(keyboard.Key, "ctrl_r", None),
+    ):
+        return True
+    try:
+        k_str = str(key).lower()
+        if "ctrl" in k_str or "control" in k_str:
             return True
     except Exception:
         pass
@@ -107,8 +133,10 @@ class DictationEngine:
         self.device_name = device_name
         self._transcriber = None
         self._corrector = None
+        self._writer = None
         self.listener = None
         self._is_correcting = False
+        self._is_writing = False
 
         self.menubar = DictationMenuBar(
             history=self.history,
@@ -118,6 +146,7 @@ class DictationEngine:
             on_select_model_callback=self.set_model,
             get_current_corrector_model=lambda: self.corrector_model,
             on_select_corrector_model_callback=self.set_corrector_model,
+            on_write_callback=self.trigger_write_async,
             on_quit_callback=self.stop,
             enabled=ENABLE_MENUBAR,
         )
@@ -159,6 +188,7 @@ class DictationEngine:
 
         self.corrector_model = new_model
         self._corrector = GeminiCorrector(model=new_model)
+        self._writer = None
         logger.info("Corrector model switched dynamically: %s -> %s", old_model, new_model)
 
         save_corrector_model_to_env(new_model)
@@ -182,6 +212,12 @@ class DictationEngine:
         if self._corrector is None:
             self._corrector = GeminiCorrector(model=self.corrector_model)
         return self._corrector
+
+    @property
+    def writer(self):
+        if self._writer is None or self._writer.model != self.corrector_model:
+            self._writer = GeminiWriter(model=self.corrector_model)
+        return self._writer
 
     def process_and_transcribe(self):
         try:
@@ -319,6 +355,102 @@ class DictationEngine:
         """Run text correction asynchronously so key listener is not blocked."""
         threading.Thread(target=self.correct_selection, daemon=True).start()
 
+    def trigger_write_async(self):
+        """Run write dialog flow asynchronously so key listener is not blocked."""
+        threading.Thread(target=self.prompt_and_write, daemon=True).start()
+
+    def prompt_and_write(self):
+        """Display write dialog, generate text with Gemini, and paste into active application."""
+        if self._is_writing:
+            return
+        self._is_writing = True
+        try:
+            frontmost_app = get_frontmost_app()
+            clip_text = get_clipboard_text()
+
+            dialog_result = prompt_write_dialog(clipboard_preview=clip_text)
+            if not dialog_result:
+                logger.info("Write dialog cancelled or dismissed")
+                return
+
+            prompt, include_clipboard = dialog_result
+            prompt = prompt.strip()
+            if not prompt:
+                logger.warning("Empty prompt entered in write dialog")
+                return
+
+            context = clip_text if (include_clipboard and clip_text) else None
+            logger.info(
+                "Drafting text with Gemini (%s, context=%s)...",
+                self.writer.model,
+                bool(context),
+            )
+            self.hud.show_writing()
+
+            start_t = time.time()
+            written = None
+            tried_models: set[str] = set()
+
+            while True:
+                current_model = self.corrector_model
+                tried_models.add(current_model)
+                try:
+                    written = self.writer.write(prompt, context=context)
+                    break
+                except Exception as e:
+                    if is_rate_limit_error(e):
+                        logger.warning(
+                            "Rate limit hit for writer model %s: %s",
+                            current_model,
+                            describe_error(e),
+                        )
+                        self.hud.hide()
+                        new_model = prompt_model_switch_on_rate_limit(
+                            current_model=current_model,
+                            tried_models=set(tried_models),
+                            available_models=AVAILABLE_CORRECTOR_MODELS,
+                        )
+                        if new_model:
+                            logger.info(
+                                "Switching corrector model to %s and retrying write...",
+                                new_model,
+                            )
+                            self.set_corrector_model(new_model, update_hud=False)
+                            self.hud.show_writing()
+                            continue
+                        else:
+                            logger.info("User declined model switch on rate limit")
+                            self.hud.show_cancelled("⚠️  Rate limit")
+                            play_sound("Basso")
+                            return
+                    else:
+                        raise
+
+            elapsed = time.time() - start_t
+            if written:
+                logger.info('Text drafted in %.2fs: "%s"', elapsed, written)
+                # Refocus user's previous frontmost application
+                reactivate_app(frontmost_app)
+                time.sleep(0.12)
+
+                self.history.add(written, kind="write")
+                self.menubar.update_menu()
+                paste_text(written)
+                self.hud.show_done("✍️  Written")
+                play_sound("Hero")
+            else:
+                logger.warning("Gemini writer returned empty text")
+                self.hud.show_cancelled("⚠️  Empty text")
+                play_sound("Basso")
+        except Exception as e:
+            reason = describe_error(e)
+            logger.error("Text generation error: %s", reason)
+            self.hud.show_cancelled("❌  Error")
+            play_sound("Basso")
+            notify("Writing failed", reason, subtitle="Gemini writer error")
+        finally:
+            self._is_writing = False
+
     def toggle_recording(self):
         if not self.recorder.is_recording:
             try:
@@ -422,11 +554,19 @@ class DictationEngine:
                     self.recorder.cancel()
                     self.hud.hide()
                 self.trigger_correction_async()
+            elif action is ComboAction.TRIGGER_WRITE:
+                if self.recorder.is_recording:
+                    self.recorder.cancel()
+                    self.hud.hide()
+                self.trigger_write_async()
             elif action is ComboAction.CANCEL_FALSE_TRIGGER:
                 self.recorder.cancel()
                 self.hud.show_cancelled()
 
         def on_press(key):
+            if _is_ctrl_key(key):
+                handle_action(tracker.on_ctrl_press())
+                return
             if _is_alt_key(key):
                 handle_action(tracker.on_alt_press())
                 return
@@ -436,6 +576,9 @@ class DictationEngine:
             handle_action(tracker.on_other_key_press(self.recorder.is_recording))
 
         def on_release(key):
+            if _is_ctrl_key(key):
+                handle_action(tracker.on_ctrl_release())
+                return
             if _is_alt_key(key):
                 handle_action(tracker.on_alt_release())
                 return

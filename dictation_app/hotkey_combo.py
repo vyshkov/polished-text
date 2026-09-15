@@ -16,11 +16,12 @@ class ComboAction(Enum):
     START_RECORDING = auto()
     STOP_AND_TRANSCRIBE = auto()
     TRIGGER_CORRECTION = auto()
+    TRIGGER_WRITE = auto()
     CANCEL_FALSE_TRIGGER = auto()
 
 
 class RightCmdComboTracker:
-    """Tracks Right Command / Right Command + Option key state and timing."""
+    """Tracks Right Command, Right Command + Option, and Ctrl + Option + Right Command key state."""
 
     HOLD_THRESHOLD = 0.5
     FALSE_TRIGGER_WINDOW = 0.4
@@ -29,14 +30,27 @@ class RightCmdComboTracker:
         self._clock = clock
         self.is_holding = False
         self.is_alt_pressed = False
+        self.is_ctrl_pressed = False
         self.combo_detected = False
         self.key_press_time = 0.0
+
+    def on_ctrl_press(self) -> ComboAction:
+        self.is_ctrl_pressed = True
+        if self.is_holding and self.is_alt_pressed:
+            self.combo_detected = True
+            return ComboAction.TRIGGER_WRITE
+        return ComboAction.NONE
+
+    def on_ctrl_release(self) -> ComboAction:
+        self.is_ctrl_pressed = False
+        return ComboAction.NONE
 
     def on_alt_press(self) -> ComboAction:
         self.is_alt_pressed = True
         if self.is_holding:
-            # Right Command was already held -> Option pressed second -> combo
             self.combo_detected = True
+            if self.is_ctrl_pressed:
+                return ComboAction.TRIGGER_WRITE
             return ComboAction.TRIGGER_CORRECTION
         return ComboAction.NONE
 
@@ -45,6 +59,12 @@ class RightCmdComboTracker:
         return ComboAction.NONE
 
     def on_cmd_r_press(self, is_recording: bool) -> ComboAction:
+        if self.is_ctrl_pressed and self.is_alt_pressed:
+            self.combo_detected = True
+            self.is_holding = True
+            self.key_press_time = self._clock()
+            return ComboAction.TRIGGER_WRITE
+
         if self.is_alt_pressed:
             # Option was already held -> Right Command pressed second -> combo
             self.combo_detected = True
@@ -56,6 +76,8 @@ class RightCmdComboTracker:
             self.is_holding = True
             self.key_press_time = self._clock()
             self.combo_detected = False
+            if self.is_ctrl_pressed:
+                return ComboAction.NONE
             return ComboAction.STOP_AND_TRANSCRIBE if is_recording else ComboAction.START_RECORDING
 
         return ComboAction.NONE

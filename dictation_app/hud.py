@@ -550,6 +550,15 @@ class DictationHUD:
         self._reposition_for_recording()
         AppHelper.callAfter(self._spin_step)
 
+    def show_writing(self):
+        if not self.enabled:
+            return
+        self._spinner_active = True
+        self._spinner_index = 0
+        self._spinner_message = "Writing..."
+        self._reposition_for_recording()
+        AppHelper.callAfter(self._spin_step)
+
     def _spin_step(self):
         if not self._spinner_active:
             return

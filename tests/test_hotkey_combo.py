@@ -82,3 +82,50 @@ def test_other_key_outside_false_trigger_window_does_not_cancel():
 def test_other_key_ignored_when_not_holding():
     tracker = RightCmdComboTracker()
     assert tracker.on_other_key_press(is_recording=False) is ComboAction.NONE
+
+
+def test_ctrl_alt_then_cmd_triggers_write():
+    clock = FakeClock()
+    tracker = RightCmdComboTracker(clock=clock)
+
+    assert tracker.on_ctrl_press() is ComboAction.NONE
+    assert tracker.on_alt_press() is ComboAction.NONE
+    assert tracker.on_cmd_r_press(is_recording=False) is ComboAction.TRIGGER_WRITE
+    assert tracker.on_cmd_r_release(is_recording=False) is ComboAction.NONE
+
+
+def test_alt_ctrl_then_cmd_triggers_write():
+    clock = FakeClock()
+    tracker = RightCmdComboTracker(clock=clock)
+
+    assert tracker.on_alt_press() is ComboAction.NONE
+    assert tracker.on_ctrl_press() is ComboAction.NONE
+    assert tracker.on_cmd_r_press(is_recording=False) is ComboAction.TRIGGER_WRITE
+
+
+def test_cmd_ctrl_then_alt_triggers_write():
+    clock = FakeClock()
+    tracker = RightCmdComboTracker(clock=clock)
+
+    assert tracker.on_cmd_r_press(is_recording=False) is ComboAction.START_RECORDING
+    assert tracker.on_ctrl_press() is ComboAction.NONE
+    assert tracker.on_alt_press() is ComboAction.TRIGGER_WRITE
+    assert tracker.on_cmd_r_release(is_recording=False) is ComboAction.NONE
+
+
+def test_ctrl_alone_with_cmd_does_not_start_recording():
+    clock = FakeClock()
+    tracker = RightCmdComboTracker(clock=clock)
+
+    tracker.on_ctrl_press()
+    assert tracker.on_cmd_r_press(is_recording=False) is ComboAction.NONE
+
+
+def test_ctrl_release_resets_ctrl_state():
+    clock = FakeClock()
+    tracker = RightCmdComboTracker(clock=clock)
+
+    tracker.on_ctrl_press()
+    tracker.on_ctrl_release()
+    tracker.on_alt_press()
+    assert tracker.on_cmd_r_press(is_recording=False) is ComboAction.TRIGGER_CORRECTION

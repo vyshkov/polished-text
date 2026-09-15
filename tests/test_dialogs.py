@@ -1,11 +1,14 @@
 """Tests for dictation_app.dialogs helper functions and rate limit prompt."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 from dictation_app.dialogs import (
     _prompt_model_picker,
+    _prompt_write_applescript,
     get_fallback_models,
     prompt_model_switch_on_rate_limit,
+    prompt_write_dialog,
 )
 
 CUSTOM_MODELS = [
@@ -145,3 +148,75 @@ def test_prompt_model_picker_cancel(mock_subproc):
     chosen = _prompt_model_picker(candidates, "Model Beta")
 
     assert chosen is None
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_write_dialog_success_with_clipboard(mock_subproc):
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout=json.dumps(
+            {"status": "ok", "prompt": "Write a thank you note", "include_clipboard": True}
+        )
+        + "\n",
+    )
+
+    result = prompt_write_dialog(clipboard_preview="Some notes from meeting")
+    assert result == ("Write a thank you note", True)
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_write_dialog_success_without_clipboard(mock_subproc):
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout=json.dumps(
+            {"status": "ok", "prompt": "Write a quick summary", "include_clipboard": False}
+        )
+        + "\n",
+    )
+
+    result = prompt_write_dialog(clipboard_preview="")
+    assert result == ("Write a quick summary", False)
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_write_dialog_cancelled(mock_subproc):
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout=json.dumps({"status": "cancelled"}) + "\n",
+    )
+
+    result = prompt_write_dialog()
+    assert result is None
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_write_dialog_empty_prompt_returns_none(mock_subproc):
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout=json.dumps({"status": "ok", "prompt": "   ", "include_clipboard": True}) + "\n",
+    )
+
+    result = prompt_write_dialog()
+    assert result is None
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_write_applescript_success(mock_subproc):
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout="Write\nHello world\n",
+    )
+
+    result = _prompt_write_applescript()
+    assert result == ("Hello world", False)
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_write_applescript_with_context(mock_subproc):
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout="Write + Context\nSummarize this\n",
+    )
+
+    result = _prompt_write_applescript(clipboard_preview="Some context")
+    assert result == ("Summarize this", True)
