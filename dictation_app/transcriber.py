@@ -55,6 +55,31 @@ def is_rate_limit_error(exc: Exception | None) -> bool:
     )
 
 
+def is_server_error(exc: Exception | None) -> bool:
+    """Check if an exception represents a 503 Service Unavailable or transient server error."""
+    if exc is None:
+        return False
+    if genai_errors is not None and isinstance(exc, genai_errors.APIError) and exc.code == 503:
+        return True
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code in (503, "503"):
+        return True
+    status = getattr(exc, "status", None)
+    if str(status).upper() in ("UNAVAILABLE", "SERVICE_UNAVAILABLE"):
+        return True
+    msg = str(exc).lower()
+    return any(
+        k in msg
+        for k in (
+            "503",
+            "service unavailable",
+            "service_unavailable",
+            "model is overloaded",
+            "temporarily unavailable",
+        )
+    )
+
+
 def describe_error(exc: Exception) -> str:
     """Turn a transcription exception into a short, user-facing reason."""
     if AzureSpeechRateLimitError is not None and isinstance(exc, AzureSpeechRateLimitError):

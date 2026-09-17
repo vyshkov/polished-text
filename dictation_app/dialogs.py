@@ -225,6 +225,127 @@ def _show_all_exhausted_dialog(timeout: float = 30.0):
         pass
 
 
+def prompt_server_error_retry(
+    current_model: str,
+    error_message: str | None = None,
+    tried_models: set[str] | None = None,
+    available_models: list[tuple[str, str]] | None = None,
+    timeout: float = 120.0,
+) -> str | None:
+    """Display a native macOS dialog proposing to retry or switch model on 503 server error.
+
+    Returns the model_id to retry with, or None if the user cancelled.
+    """
+    models = available_models if available_models is not None else AVAILABLE_MODELS
+    frontmost_app = get_frontmost_app()
+
+    payload = json.dumps(
+        {
+            "current_model": current_model,
+            "error_message": error_message or "",
+            "available_models": models,
+        }
+    )
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "dictation_app.dialogs", "server-error-prompt"],
+            input=payload,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except Exception as e:
+        logger.error("Failed to run server error dialog helper: %s", e)
+        return _prompt_server_error_applescript(
+            current_model, error_message, models, timeout=timeout
+        )
+
+    if proc.returncode != 0:
+        return None
+
+    try:
+        lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+        if not lines:
+            return None
+        data = json.loads(lines[-1])
+        if data.get("status") == "retry":
+            selected_model = data.get("model") or current_model
+            reactivate_app(frontmost_app)
+            return selected_model
+        return None
+    except Exception as e:
+        logger.warning("Error parsing server error dialog response: %s", e)
+        return _prompt_server_error_applescript(
+            current_model, error_message, models, timeout=timeout
+        )
+
+
+def _prompt_server_error_applescript(
+    current_model: str,
+    error_message: str | None = None,
+    available_models: list[tuple[str, str]] | None = None,
+    timeout: float = 120.0,
+) -> str | None:
+    """Fallback AppleScript server error dialog if native Cocoa helper is unavailable."""
+    models = available_models if available_models is not None else AVAILABLE_MODELS
+    current_display = get_model_display_name(current_model, models)
+    curr_escaped = _escape_applescript(current_display)
+
+    prompt_text = (
+        f"The server responded with error 503 (Service Unavailable) for {curr_escaped}.\\n\\n"
+        "Would you like to retry with this model, switch models, or cancel?"
+    )
+
+    has_other_options = len(models) > 1
+    buttons_expr = (
+        '{"Cancel", "Change Model...", "Retry"}' if has_other_options else '{"Cancel", "Retry"}'
+    )
+
+    script = f"""
+    try
+        tell application "System Events"
+            activate
+            set theResult to display dialog "{prompt_text}" buttons {buttons_expr} default button "Retry" cancel button "Cancel" with title "Gemini Dictation - Server Error (503)" with icon caution
+            return button returned of theResult
+        end tell
+    on error errMsg number errNum
+        if errNum is -128 then
+            return "CANCEL"
+        end if
+        try
+            set theResult to display dialog "{prompt_text}" buttons {buttons_expr} default button "Retry" cancel button "Cancel" with title "Gemini Dictation - Server Error (503)" with icon caution
+            return button returned of theResult
+        on error
+            return "CANCEL"
+        end try
+    end try
+    """
+
+    try:
+        proc = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except Exception as e:
+        logger.error("AppleScript server error prompt failed: %s", e)
+        return None
+
+    if proc.returncode != 0:
+        return None
+
+    button_clicked = proc.stdout.strip()
+    if button_clicked == "Retry":
+        return current_model
+    elif button_clicked == "Change Model...":
+        return _prompt_model_picker(models, current_display, timeout=timeout)
+    return None
+
+
 def prompt_write_dialog(
     clipboard_preview: str | None = None,
     timeout: float = 300.0,
@@ -392,6 +513,113 @@ def _run_write_prompt_cocoa():
         print(json.dumps({"status": "error", "error": str(e)}))
 
 
+def _run_server_error_prompt_cocoa():
+    """Standalone process entrypoint displaying native Cocoa NSAlert with model dropdown and Retry/Cancel buttons."""
+    current_model = None
+    error_message = None
+    available_models = AVAILABLE_MODELS
+    try:
+        raw_in = sys.stdin.read()
+        if raw_in:
+            data = json.loads(raw_in)
+            current_model = data.get("current_model")
+            error_message = data.get("error_message")
+            if "available_models" in data:
+                available_models = [tuple(m) for m in data["available_models"]]
+    except Exception:
+        pass
+
+    if not HAS_APPKIT:
+        res = _prompt_server_error_applescript(current_model, error_message, available_models)
+        if res:
+            print(json.dumps({"status": "retry", "model": res}))
+        else:
+            print(json.dumps({"status": "cancelled"}))
+        return
+
+    try:
+        app = AppKit.NSApplication.sharedApplication()
+        app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
+
+        alert = AppKit.NSAlert.alloc().init()
+        alert.setMessageText_("Server Error (503)")
+
+        curr_display = (
+            get_model_display_name(current_model, available_models) if current_model else "Gemini"
+        )
+        curr_escaped = curr_display.replace("\n", " ")
+
+        info_text = (
+            f"The server responded with error 503 (Service Unavailable) for {curr_escaped}.\n\n"
+            "You can retry with the current model, select a different model, or cancel."
+        )
+        alert.setInformativeText_(info_text)
+        alert.setAlertStyle_(AppKit.NSAlertStyleWarning)
+
+        # Buttons: Retry (default), Cancel (esc)
+        alert.addButtonWithTitle_("Retry")
+        btn_cancel = alert.addButtonWithTitle_("Cancel")
+        btn_cancel.setKeyEquivalent_("\x1b")
+
+        # Accessory view with Model dropdown (NSPopUpButton)
+        box_width = 380
+        box_height = 36
+        view = AppKit.NSView.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, box_width, box_height))
+
+        label = AppKit.NSTextField.alloc().initWithFrame_(AppKit.NSMakeRect(0, 7, 50, 20))
+        label.setStringValue_("Model:")
+        label.setBezeled_(False)
+        label.setDrawsBackground_(False)
+        label.setEditable_(False)
+        label.setSelectable_(False)
+        label.setFont_(AppKit.NSFont.systemFontOfSize_(13.0))
+        view.addSubview_(label)
+
+        popup = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
+            AppKit.NSMakeRect(55, 4, 320, 26), False
+        )
+
+        model_ids = []
+        selected_index = 0
+        for idx, (mid, display_name) in enumerate(available_models):
+            popup.addItemWithTitle_(display_name)
+            model_ids.append(mid)
+            if mid == current_model:
+                selected_index = idx
+
+        if current_model and current_model not in model_ids:
+            popup.insertItemWithTitle_atIndex_(curr_display, 0)
+            model_ids.insert(0, current_model)
+            selected_index = 0
+
+        popup.selectItemAtIndex_(selected_index)
+        view.addSubview_(popup)
+
+        alert.setAccessoryView_(view)
+
+        app.activateIgnoringOtherApps_(True)
+        alert.window().makeKeyAndOrderFront_(None)
+
+        res = alert.runModal()
+        if res == AppKit.NSAlertFirstButtonReturn:
+            chosen_idx = popup.indexOfSelectedItem()
+            chosen_model_id = (
+                model_ids[chosen_idx] if 0 <= chosen_idx < len(model_ids) else (current_model or "")
+            )
+            print(json.dumps({"status": "retry", "model": chosen_model_id}))
+        else:
+            print(json.dumps({"status": "cancelled"}))
+    except Exception as e:
+        logger.error("Cocoa server error prompt error: %s", e)
+        res = _prompt_server_error_applescript(current_model, error_message, available_models)
+        if res:
+            print(json.dumps({"status": "retry", "model": res}))
+        else:
+            print(json.dumps({"status": "cancelled"}))
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "write-prompt":
         _run_write_prompt_cocoa()
+    elif len(sys.argv) > 1 and sys.argv[1] == "server-error-prompt":
+        _run_server_error_prompt_cocoa()

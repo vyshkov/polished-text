@@ -21,6 +21,7 @@ from .clipboard import (
 from .config import (
     AUDIO_FILE,
     AVAILABLE_CORRECTOR_MODELS,
+    AVAILABLE_MODELS,
     DEFAULT_AUDIO_DEVICE,
     DEFAULT_CORRECTOR_MODEL,
     DEFAULT_HOTKEY,
@@ -37,6 +38,7 @@ from .corrector import GeminiCorrector
 from .dialogs import (
     get_frontmost_app,
     prompt_model_switch_on_rate_limit,
+    prompt_server_error_retry,
     prompt_write_dialog,
     reactivate_app,
 )
@@ -52,6 +54,7 @@ from .transcriber import (
     describe_error,
     get_transcriber,
     is_rate_limit_error,
+    is_server_error,
 )
 from .writer import GeminiWriter
 
@@ -273,6 +276,38 @@ class DictationEngine:
                             self.hud.show_cancelled("⚠️  Rate limit")
                             play_sound("Basso")
                             return
+                    elif is_server_error(e):
+                        logger.warning(
+                            "Server error (503) hit for model %s: %s",
+                            current_model,
+                            describe_error(e),
+                        )
+                        self.hud.hide()
+                        new_model = prompt_server_error_retry(
+                            current_model=current_model,
+                            error_message=describe_error(e),
+                            tried_models=set(tried_models),
+                            available_models=AVAILABLE_MODELS,
+                        )
+                        if new_model:
+                            if new_model != current_model:
+                                logger.info(
+                                    "Switching model to %s and retrying transcription with the same recording...",
+                                    new_model,
+                                )
+                                self.set_model(new_model, update_hud=False)
+                            else:
+                                logger.info(
+                                    "Retrying transcription with same model (%s)...",
+                                    current_model,
+                                )
+                            self.hud.show_transcribing()
+                            continue
+                        else:
+                            logger.info("User cancelled retry on server error")
+                            self.hud.show_cancelled("⚠️  Cancelled")
+                            play_sound("Basso")
+                            return
                     else:
                         raise
 
@@ -314,7 +349,60 @@ class DictationEngine:
             )
             logger.debug("Original text: %r", text)
 
-            corrected = self.corrector.correct(text)
+            corrected = None
+            tried_models: set[str] = set()
+
+            while True:
+                current_model = self.corrector_model
+                tried_models.add(current_model)
+                try:
+                    corrected = self.corrector.correct(text)
+                    break
+                except Exception as e:
+                    if is_rate_limit_error(e):
+                        logger.warning(
+                            "Rate limit hit for corrector model %s: %s",
+                            current_model,
+                            describe_error(e),
+                        )
+                        self.hud.hide()
+                        new_model = prompt_model_switch_on_rate_limit(
+                            current_model=current_model,
+                            tried_models=set(tried_models),
+                            available_models=AVAILABLE_CORRECTOR_MODELS,
+                        )
+                        if new_model:
+                            self.set_corrector_model(new_model, update_hud=False)
+                            self.hud.show_correcting()
+                            continue
+                        else:
+                            self.hud.show_cancelled("⚠️  Rate limit")
+                            play_sound("Basso")
+                            return
+                    elif is_server_error(e):
+                        logger.warning(
+                            "Server error (503) hit for corrector model %s: %s",
+                            current_model,
+                            describe_error(e),
+                        )
+                        self.hud.hide()
+                        new_model = prompt_server_error_retry(
+                            current_model=current_model,
+                            error_message=describe_error(e),
+                            tried_models=set(tried_models),
+                            available_models=AVAILABLE_CORRECTOR_MODELS,
+                        )
+                        if new_model:
+                            if new_model != current_model:
+                                self.set_corrector_model(new_model, update_hud=False)
+                            self.hud.show_correcting()
+                            continue
+                        else:
+                            self.hud.show_cancelled("⚠️  Cancelled")
+                            play_sound("Basso")
+                            return
+                    else:
+                        raise
             elapsed = time.time() - start_t
 
             if corrected:
@@ -421,6 +509,38 @@ class DictationEngine:
                         else:
                             logger.info("User declined model switch on rate limit")
                             self.hud.show_cancelled("⚠️  Rate limit")
+                            play_sound("Basso")
+                            return
+                    elif is_server_error(e):
+                        logger.warning(
+                            "Server error (503) hit for writer model %s: %s",
+                            current_model,
+                            describe_error(e),
+                        )
+                        self.hud.hide()
+                        new_model = prompt_server_error_retry(
+                            current_model=current_model,
+                            error_message=describe_error(e),
+                            tried_models=set(tried_models),
+                            available_models=AVAILABLE_CORRECTOR_MODELS,
+                        )
+                        if new_model:
+                            if new_model != current_model:
+                                logger.info(
+                                    "Switching corrector model to %s and retrying write...",
+                                    new_model,
+                                )
+                                self.set_corrector_model(new_model, update_hud=False)
+                            else:
+                                logger.info(
+                                    "Retrying write with same model (%s)...",
+                                    current_model,
+                                )
+                            self.hud.show_writing()
+                            continue
+                        else:
+                            logger.info("User cancelled retry on server error")
+                            self.hud.show_cancelled("⚠️  Cancelled")
                             play_sound("Basso")
                             return
                     else:

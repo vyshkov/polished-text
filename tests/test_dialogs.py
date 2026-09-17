@@ -5,9 +5,11 @@ from unittest.mock import MagicMock, patch
 
 from dictation_app.dialogs import (
     _prompt_model_picker,
+    _prompt_server_error_applescript,
     _prompt_write_applescript,
     get_fallback_models,
     prompt_model_switch_on_rate_limit,
+    prompt_server_error_retry,
     prompt_write_dialog,
 )
 
@@ -220,3 +222,86 @@ def test_prompt_write_applescript_with_context(mock_subproc):
 
     result = _prompt_write_applescript(clipboard_preview="Some context")
     assert result == ("Summarize this", True)
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+@patch("dictation_app.dialogs.reactivate_app")
+@patch("dictation_app.dialogs.get_frontmost_app")
+def test_prompt_server_error_retry_same_model(mock_get_app, mock_reactivate, mock_subproc):
+    mock_app = MagicMock()
+    mock_get_app.return_value = mock_app
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout=json.dumps({"status": "retry", "model": "model-a"}) + "\n",
+    )
+
+    result = prompt_server_error_retry("model-a", available_models=CUSTOM_MODELS)
+    assert result == "model-a"
+    mock_reactivate.assert_called_once_with(mock_app)
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+@patch("dictation_app.dialogs.reactivate_app")
+@patch("dictation_app.dialogs.get_frontmost_app")
+def test_prompt_server_error_retry_switch_model(mock_get_app, mock_reactivate, mock_subproc):
+    mock_app = MagicMock()
+    mock_get_app.return_value = mock_app
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout=json.dumps({"status": "retry", "model": "model-b"}) + "\n",
+    )
+
+    result = prompt_server_error_retry("model-a", available_models=CUSTOM_MODELS)
+    assert result == "model-b"
+    mock_reactivate.assert_called_once_with(mock_app)
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+@patch("dictation_app.dialogs.reactivate_app")
+@patch("dictation_app.dialogs.get_frontmost_app")
+def test_prompt_server_error_retry_cancelled(mock_get_app, mock_reactivate, mock_subproc):
+    mock_get_app.return_value = MagicMock()
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout=json.dumps({"status": "cancelled"}) + "\n",
+    )
+
+    result = prompt_server_error_retry("model-a", available_models=CUSTOM_MODELS)
+    assert result is None
+    mock_reactivate.assert_not_called()
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_server_error_applescript_retry(mock_subproc):
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout="Retry\n",
+    )
+
+    result = _prompt_server_error_applescript("model-a", available_models=CUSTOM_MODELS)
+    assert result == "model-a"
+
+
+@patch("dictation_app.dialogs._prompt_model_picker")
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_server_error_applescript_change_model(mock_subproc, mock_picker):
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout="Change Model...\n",
+    )
+    mock_picker.return_value = "model-c"
+
+    result = _prompt_server_error_applescript("model-a", available_models=CUSTOM_MODELS)
+    assert result == "model-c"
+    mock_picker.assert_called_once()
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_server_error_applescript_cancel(mock_subproc):
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout="CANCEL\n",
+    )
+
+    result = _prompt_server_error_applescript("model-a", available_models=CUSTOM_MODELS)
+    assert result is None

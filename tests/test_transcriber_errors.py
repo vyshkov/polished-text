@@ -2,7 +2,7 @@
 
 from google.genai import errors as genai_errors
 
-from dictation_app.transcriber import describe_error, is_rate_limit_error
+from dictation_app.transcriber import describe_error, is_rate_limit_error, is_server_error
 
 
 def _api_error(code: int, message: str = "boom") -> genai_errors.APIError:
@@ -20,6 +20,22 @@ def test_is_rate_limit_error():
     assert is_rate_limit_error(Exception("RESOURCE_EXHAUSTED: quota exceeded")) is True
     assert is_rate_limit_error(Exception("429 Too Many Requests")) is True
     assert is_rate_limit_error(ValueError("Normal connection error")) is False
+
+
+def test_is_server_error():
+    assert is_server_error(_api_error(503)) is True
+    assert is_server_error(_api_error(429)) is False
+    assert is_server_error(_api_error(403)) is False
+    assert is_server_error(None) is False
+    assert (
+        is_server_error(
+            genai_errors.ServerError(503, {"error": {"message": "Service Unavailable"}})
+        )
+        is True
+    )
+    assert is_server_error(Exception("503 Service Unavailable")) is True
+    assert is_server_error(Exception("The model is overloaded. Please try again later.")) is True
+    assert is_server_error(ValueError("Normal connection error")) is False
 
 
 def test_auth_error_message_for_401_and_403():
