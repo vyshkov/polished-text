@@ -36,7 +36,9 @@ def test_engine_prompt_and_write_success(
 
     engine.prompt_and_write()
 
-    mock_dialog.assert_called_once_with(clipboard_preview="Important context")
+    mock_dialog.assert_called_once_with(
+        clipboard_preview="Important context", model="gemini-3.5-flash-lite"
+    )
     mock_writer_instance.write.assert_called_once_with(
         "Write an email", context="Important context"
     )

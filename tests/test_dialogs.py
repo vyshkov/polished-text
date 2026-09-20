@@ -354,3 +354,69 @@ def test_prompt_server_error_fallback_on_nonzero_exit(mock_subproc, mock_as):
     assert result == "model-b"
     mock_as.assert_called_once()
 
+
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_write_dialog_passes_model(mock_subproc):
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout=json.dumps({"status": "ok", "prompt": "Prompt", "include_clipboard": True})
+        + "\n",
+    )
+
+    result = prompt_write_dialog(clipboard_preview="Context", model="gemini-3.6-flash")
+    assert result == ("Prompt", True)
+
+    _, kwargs = mock_subproc.call_args
+    sent_payload = json.loads(kwargs["input"])
+    assert sent_payload["model"] == "gemini-3.6-flash"
+    assert sent_payload["clipboard_preview"] == "Context"
+
+
+def test_write_dialog_controller_transcription_updates_text():
+    from dictation_app.dialogs import HAS_APPKIT, _WriteDialogController
+
+    if not HAS_APPKIT:
+        return
+
+    controller = _WriteDialogController.alloc().init()
+    mock_tf = MagicMock()
+    mock_tf.stringValue.return_value = "Existing prompt"
+    mock_btn_mic = MagicMock()
+    mock_btn_ok = MagicMock()
+    mock_status = MagicMock()
+    mock_window = MagicMock()
+
+    controller.setup(
+        tf=mock_tf,
+        btn_mic=mock_btn_mic,
+        btn_ok=mock_btn_ok,
+        status_label=mock_status,
+        window=mock_window,
+        model="gemini-3.5-flash-lite",
+    )
+
+    # Simulate finishing transcription with speech
+    controller._finish_transcription("explain this code", None)
+
+    mock_tf.setStringValue_.assert_called_once_with("Existing prompt explain this code")
+    mock_btn_ok.setEnabled_.assert_called_with(True)
+    mock_btn_mic.setEnabled_.assert_called_with(True)
+    mock_window.makeFirstResponder_.assert_called_once_with(mock_tf)
+
+
+def test_write_dialog_controller_cleanup_on_cancel():
+    from dictation_app.dialogs import HAS_APPKIT, _WriteDialogController
+
+    if not HAS_APPKIT:
+        return
+
+    controller = _WriteDialogController.alloc().init()
+    mock_recorder = MagicMock()
+    controller.recorder = mock_recorder
+    controller.is_recording = True
+
+    controller.cleanup()
+    mock_recorder.cancel.assert_called_once()
+    assert controller.is_recording is False
+
+

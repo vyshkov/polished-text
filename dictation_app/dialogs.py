@@ -4,6 +4,8 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import threading
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -22,15 +24,188 @@ def _get_dialog_cmd_and_env(subcommand: str) -> tuple[list[str], dict[str, str],
 
 try:
     import AppKit
+    import objc
 
     HAS_APPKIT = True
 except ImportError:
     HAS_APPKIT = False
 
-from .config import AVAILABLE_MODELS, get_model_display_name
+from .config import AVAILABLE_MODELS, DEFAULT_MODEL, get_model_display_name
 from .logger import get_logger
 
 logger = get_logger("Dialogs")
+
+
+def _make_sf_symbol(name: str):
+    """Load a native Apple SF Symbol template image for Cocoa controls."""
+    if not HAS_APPKIT:
+        return None
+    try:
+        img = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(name, None)
+        if img:
+            img.setTemplate_(True)
+        return img
+    except Exception:
+        return None
+
+
+if HAS_APPKIT:
+
+    class _WriteDialogController(AppKit.NSObject):
+        """Controller managing voice recording and transcription inside the Write dialog."""
+
+        def init(self):
+            self = objc.super(_WriteDialogController, self).init()
+            self.tf = None
+            self.btn_mic = None
+            self.btn_ok = None
+            self.status_label = None
+            self.window = None
+            self.model = DEFAULT_MODEL
+            self.recorder = None
+            self.is_recording = False
+            self.temp_audio_path = (
+                Path(tempfile.gettempdir()) / f"gemini_write_prompt_{os.getpid()}.flac"
+            )
+            return self
+
+        @objc.python_method
+        def setup(self, tf, btn_mic, btn_ok, status_label, window, model: str | None = None):
+            self.tf = tf
+            self.btn_mic = btn_mic
+            self.btn_ok = btn_ok
+            self.status_label = status_label
+            self.window = window
+            self.model = model or DEFAULT_MODEL
+
+        def toggleVoiceRecord_(self, sender):
+            if not self.is_recording:
+                self.startRecording()
+            else:
+                self.stopRecording()
+
+        @objc.python_method
+        def startRecording(self):
+            try:
+                from .audio import AudioRecorder
+
+                self.recorder = AudioRecorder(output_path=self.temp_audio_path)
+                self.recorder.start()
+                self.is_recording = True
+
+                stop_img = _make_sf_symbol("stop.fill") or _make_sf_symbol("stop.circle.fill")
+                if stop_img and self.btn_mic:
+                    self.btn_mic.setImage_(stop_img)
+                    self.btn_mic.setTitle_("")
+                elif self.btn_mic:
+                    self.btn_mic.setTitle_("⏹️ Stop")
+
+                if self.btn_mic:
+                    self.btn_mic.setToolTip_("Click to stop recording and transcribe")
+                if self.status_label:
+                    self.status_label.setStringValue_("🔴 Listening... Click ⏹️ to finish.")
+                    self.status_label.setTextColor_(AppKit.NSColor.systemRedColor())
+                if self.btn_ok:
+                    self.btn_ok.setEnabled_(False)
+            except Exception as e:
+                logger.error("Failed to start voice recording in write dialog: %s", e)
+                if self.status_label:
+                    self.status_label.setStringValue_(f"⚠️ Microphone error: {e}")
+                    self.status_label.setTextColor_(AppKit.NSColor.systemOrangeColor())
+                self.is_recording = False
+
+        @objc.python_method
+        def stopRecording(self):
+            self.is_recording = False
+            if self.btn_mic:
+                self.btn_mic.setEnabled_(False)
+            if self.status_label:
+                self.status_label.setStringValue_("⏳ Transcribing speech with Gemini...")
+                self.status_label.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+
+            audio_file = None
+            try:
+                if self.recorder:
+                    audio_file = self.recorder.stop()
+            except Exception as e:
+                logger.error("Error stopping recorder in write dialog: %s", e)
+
+            if not audio_file or not audio_file.exists() or audio_file.stat().st_size == 0:
+                self._finish_transcription("", None)
+                return
+
+            def _transcribe_worker():
+                transcribed_text = ""
+                error_msg = None
+                try:
+                    from .transcriber import get_transcriber
+
+                    transcriber = get_transcriber(self.model)
+                    transcribed_text = transcriber.transcribe(audio_file)
+                except Exception as exc:
+                    logger.error("Transcription error in write dialog: %s", exc)
+                    error_msg = str(exc)
+
+                AppKit.NSOperationQueue.mainQueue().addOperationWithBlock_(
+                    lambda: self._finish_transcription(transcribed_text, error_msg)
+                )
+
+            threading.Thread(target=_transcribe_worker, daemon=True).start()
+
+        @objc.python_method
+        def _finish_transcription(self, text: str, error: str | None):
+            if self.btn_mic:
+                self.btn_mic.setEnabled_(True)
+                mic_img = _make_sf_symbol("mic.fill") or _make_sf_symbol("mic")
+                if mic_img:
+                    self.btn_mic.setImage_(mic_img)
+                    self.btn_mic.setTitle_("")
+                else:
+                    self.btn_mic.setTitle_("🎙️")
+                self.btn_mic.setToolTip_("Dictate prompt with microphone (preserves clipboard)")
+
+            if self.btn_ok:
+                self.btn_ok.setEnabled_(True)
+
+            if error:
+                short_err = error.split("\n")[0][:45]
+                if self.status_label:
+                    self.status_label.setStringValue_(f"⚠️ Transcription error: {short_err}")
+                    self.status_label.setTextColor_(AppKit.NSColor.systemRedColor())
+            elif text:
+                current_val = str(self.tf.stringValue() or "").strip()
+                new_val = f"{current_val} {text}".strip() if current_val else text
+                self.tf.setStringValue_(new_val)
+                if self.status_label:
+                    self.status_label.setStringValue_("✨ Speech transcribed (clipboard untouched)")
+                    self.status_label.setTextColor_(AppKit.NSColor.systemGreenColor())
+                if self.window and self.tf:
+                    self.window.makeFirstResponder_(self.tf)
+            else:
+                if self.status_label:
+                    self.status_label.setStringValue_("⚠️ No speech detected")
+                    self.status_label.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+
+            try:
+                if self.temp_audio_path.exists():
+                    self.temp_audio_path.unlink()
+            except Exception:
+                pass
+
+        @objc.python_method
+        def cleanup(self):
+            if self.is_recording and self.recorder:
+                try:
+                    self.recorder.cancel()
+                except Exception:
+                    pass
+                self.is_recording = False
+            try:
+                if self.temp_audio_path.exists():
+                    self.temp_audio_path.unlink()
+            except Exception:
+                pass
+
 
 
 def _escape_applescript(s: str) -> str:
@@ -375,13 +550,17 @@ def _prompt_server_error_applescript(
 
 def prompt_write_dialog(
     clipboard_preview: str | None = None,
+    model: str | None = None,
     timeout: float = 300.0,
 ) -> tuple[str, bool] | None:
     """Display a native macOS dialog prompting for text to write and clipboard context.
 
     Returns: (prompt, include_clipboard) if submitted, or None if cancelled.
     """
-    payload = json.dumps({"clipboard_preview": clipboard_preview or ""})
+    payload = json.dumps({
+        "clipboard_preview": clipboard_preview or "",
+        "model": model or DEFAULT_MODEL,
+    })
     cmd, env, cwd = _get_dialog_cmd_and_env("write-prompt")
     try:
         proc = subprocess.run(
@@ -479,13 +658,15 @@ def _prompt_write_applescript(
 
 
 def _run_write_prompt_cocoa():
-    """Standalone process entrypoint displaying native Cocoa NSAlert with input field & checkbox."""
+    """Standalone process entrypoint displaying native Cocoa NSAlert with input field, mic button & checkbox."""
     clipboard_preview = None
+    model_name = DEFAULT_MODEL
     try:
         raw_in = sys.stdin.read()
         if raw_in:
             data = json.loads(raw_in)
             clipboard_preview = data.get("clipboard_preview")
+            model_name = data.get("model") or DEFAULT_MODEL
     except Exception:
         pass
 
@@ -503,16 +684,17 @@ def _run_write_prompt_cocoa():
 
         alert = AppKit.NSAlert.alloc().init()
         alert.setMessageText_("Write with Gemini")
-        alert.setInformativeText_("Enter instructions or a prompt for what you want to write:")
+        alert.setInformativeText_("Enter instructions or dictate a prompt for what you want to write:")
         alert.addButtonWithTitle_("OK")
         btn_cancel = alert.addButtonWithTitle_("Cancel")
         btn_cancel.setKeyEquivalent_("\x1b")
 
         box_width = 440
-        box_height = 80
+        box_height = 96
         view = AppKit.NSView.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, box_width, box_height))
 
-        tf = AppKit.NSTextField.alloc().initWithFrame_(AppKit.NSMakeRect(0, 28, box_width, 48))
+        # Text field (width: 392, height: 48 at y=44)
+        tf = AppKit.NSTextField.alloc().initWithFrame_(AppKit.NSMakeRect(0, 44, 392, 48))
         tf.cell().setWraps_(True)
         tf.cell().setScrollable_(False)
         tf.setPlaceholderString_("e.g. Draft a concise follow-up email...")
@@ -523,7 +705,33 @@ def _run_write_prompt_cocoa():
         tf.setAction_("performClick:")
         view.addSubview_(tf)
 
-        cb = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(0, 2, box_width, 22))
+        # Microphone dictation button (width: 42, height: 48 at x=398, y=44)
+        btn_mic = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(398, 44, 42, 48))
+        btn_mic.setBezelStyle_(AppKit.NSBezelStyleRounded)
+        mic_img = _make_sf_symbol("mic.fill") or _make_sf_symbol("mic")
+        if mic_img:
+            btn_mic.setImage_(mic_img)
+            btn_mic.setImagePosition_(AppKit.NSImageOnly)
+        else:
+            btn_mic.setTitle_("🎙️")
+        btn_mic.setToolTip_("Dictate prompt with microphone (preserves clipboard)")
+        view.addSubview_(btn_mic)
+
+        # Status & feedback label (width: 436, height: 16 at x=2, y=24)
+        status_label = AppKit.NSTextField.alloc().initWithFrame_(
+            AppKit.NSMakeRect(2, 24, box_width - 4, 16)
+        )
+        status_label.setBezeled_(False)
+        status_label.setDrawsBackground_(False)
+        status_label.setEditable_(False)
+        status_label.setSelectable_(False)
+        status_label.setFont_(AppKit.NSFont.systemFontOfSize_(11.0))
+        status_label.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        status_label.setStringValue_("💡 Click 🎙️ to dictate instructions without altering clipboard.")
+        view.addSubview_(status_label)
+
+        # Clipboard context inclusion checkbox (width: 440, height: 18 at x=0, y=2)
+        cb = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(0, 2, box_width, 18))
         cb.setButtonType_(AppKit.NSButtonTypeSwitch)
         cb.setFont_(AppKit.NSFont.systemFontOfSize_(12.0))
 
@@ -543,6 +751,18 @@ def _run_write_prompt_cocoa():
         alert.setAccessoryView_(view)
         alert.window().setInitialFirstResponder_(tf)
 
+        controller = _WriteDialogController.alloc().init()
+        controller.setup(
+            tf=tf,
+            btn_mic=btn_mic,
+            btn_ok=btn_ok,
+            status_label=status_label,
+            window=alert.window(),
+            model=model_name,
+        )
+        btn_mic.setTarget_(controller)
+        btn_mic.setAction_("toggleVoiceRecord:")
+
         alert.window().setLevel_(AppKit.NSFloatingWindowLevel)
         alert.window().center()
         app.activateIgnoringOtherApps_(True)
@@ -550,6 +770,7 @@ def _run_write_prompt_cocoa():
         alert.window().makeFirstResponder_(tf)
 
         res = alert.runModal()
+        controller.cleanup()
         if res == AppKit.NSAlertFirstButtonReturn:
             prompt_val = str(tf.stringValue() or "").strip()
             inc_clip = bool(cb.state() == AppKit.NSControlStateValueOn)
