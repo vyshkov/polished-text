@@ -1,8 +1,24 @@
 """Native macOS dialog pop-ups for Gemini rate limits and user interactions."""
 
 import json
+import os
 import subprocess
 import sys
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_VENV_PYTHON = _PROJECT_ROOT / "venv" / "bin" / "python"
+
+
+def _get_dialog_cmd_and_env(subcommand: str) -> tuple[list[str], dict[str, str], str]:
+    """Get the command, environment, and working directory to reliably run a dialog helper."""
+    py_exec = str(_VENV_PYTHON) if _VENV_PYTHON.exists() else sys.executable
+    env = os.environ.copy()
+    pythonpath = env.get("PYTHONPATH", "")
+    root_str = str(_PROJECT_ROOT)
+    env["PYTHONPATH"] = f"{root_str}:{pythonpath}" if pythonpath else root_str
+    return [py_exec, "-m", "dictation_app.dialogs", subcommand], env, root_str
+
 
 try:
     import AppKit
@@ -247,14 +263,17 @@ def prompt_server_error_retry(
         }
     )
 
+    cmd, env, cwd = _get_dialog_cmd_and_env("server-error-prompt")
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "dictation_app.dialogs", "server-error-prompt"],
+            cmd,
             input=payload,
             capture_output=True,
             text=True,
             check=False,
             timeout=timeout,
+            cwd=cwd,
+            env=env,
         )
     except Exception as e:
         logger.error("Failed to run server error dialog helper: %s", e)
@@ -263,7 +282,15 @@ def prompt_server_error_retry(
         )
 
     if proc.returncode != 0:
-        return None
+        logger.warning(
+            "Server error dialog helper exited with code %d: stderr=%s, stdout=%s",
+            proc.returncode,
+            proc.stderr.strip() if proc.stderr else "",
+            proc.stdout.strip() if proc.stdout else "",
+        )
+        return _prompt_server_error_applescript(
+            current_model, error_message, models, timeout=timeout
+        )
 
     try:
         lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
@@ -355,21 +382,30 @@ def prompt_write_dialog(
     Returns: (prompt, include_clipboard) if submitted, or None if cancelled.
     """
     payload = json.dumps({"clipboard_preview": clipboard_preview or ""})
+    cmd, env, cwd = _get_dialog_cmd_and_env("write-prompt")
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "dictation_app.dialogs", "write-prompt"],
+            cmd,
             input=payload,
             capture_output=True,
             text=True,
             check=False,
             timeout=timeout,
+            cwd=cwd,
+            env=env,
         )
     except Exception as e:
         logger.error("Failed to run write dialog helper: %s", e)
         return _prompt_write_applescript(clipboard_preview, timeout=timeout)
 
     if proc.returncode != 0:
-        return None
+        logger.warning(
+            "Write dialog helper exited with code %d: stderr=%s, stdout=%s",
+            proc.returncode,
+            proc.stderr.strip() if proc.stderr else "",
+            proc.stdout.strip() if proc.stdout else "",
+        )
+        return _prompt_write_applescript(clipboard_preview, timeout=timeout)
 
     try:
         lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
@@ -409,8 +445,16 @@ def _prompt_write_applescript(
             set theResult to display dialog "{prompt_msg}" default answer "" buttons {buttons} default button {default_btn} cancel button "Cancel" with title "{escaped_title}"
             return (button returned of theResult) & "\\n" & (text returned of theResult)
         end tell
-    on error
-        return "CANCEL"
+    on error errMsg number errNum
+        if errNum is -128 then
+            return "CANCEL"
+        end if
+        try
+            set theResult to display dialog "{prompt_msg}" default answer "" buttons {buttons} default button {default_btn} cancel button "Cancel" with title "{escaped_title}"
+            return (button returned of theResult) & "\\n" & (text returned of theResult)
+        on error
+            return "CANCEL"
+        end try
     end try
     """
     try:
@@ -461,7 +505,8 @@ def _run_write_prompt_cocoa():
         alert.setMessageText_("Write with Gemini")
         alert.setInformativeText_("Enter instructions or a prompt for what you want to write:")
         alert.addButtonWithTitle_("OK")
-        alert.addButtonWithTitle_("Cancel")
+        btn_cancel = alert.addButtonWithTitle_("Cancel")
+        btn_cancel.setKeyEquivalent_("\x1b")
 
         box_width = 440
         box_height = 80
@@ -498,8 +543,11 @@ def _run_write_prompt_cocoa():
         alert.setAccessoryView_(view)
         alert.window().setInitialFirstResponder_(tf)
 
+        alert.window().setLevel_(AppKit.NSFloatingWindowLevel)
+        alert.window().center()
         app.activateIgnoringOtherApps_(True)
         alert.window().makeKeyAndOrderFront_(None)
+        alert.window().makeFirstResponder_(tf)
 
         res = alert.runModal()
         if res == AppKit.NSAlertFirstButtonReturn:

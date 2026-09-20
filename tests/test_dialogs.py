@@ -305,3 +305,52 @@ def test_prompt_server_error_applescript_cancel(mock_subproc):
 
     result = _prompt_server_error_applescript("model-a", available_models=CUSTOM_MODELS)
     assert result is None
+
+
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_write_dialog_subprocess_args(mock_subproc):
+    mock_subproc.return_value = MagicMock(
+        returncode=0,
+        stdout=json.dumps({"status": "ok", "prompt": "Test prompt", "include_clipboard": False})
+        + "\n",
+    )
+
+    result = prompt_write_dialog()
+    assert result == ("Test prompt", False)
+
+    mock_subproc.assert_called_once()
+    _, kwargs = mock_subproc.call_args
+    assert "cwd" in kwargs
+    assert kwargs["cwd"] != ""
+    assert "PYTHONPATH" in kwargs["env"]
+
+
+@patch("dictation_app.dialogs._prompt_write_applescript")
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_write_dialog_fallback_on_nonzero_exit(mock_subproc, mock_as):
+    mock_subproc.return_value = MagicMock(
+        returncode=1,
+        stderr="ModuleNotFoundError",
+        stdout="",
+    )
+    mock_as.return_value = ("Fallback prompt", True)
+
+    result = prompt_write_dialog(clipboard_preview="Some clip")
+    assert result == ("Fallback prompt", True)
+    mock_as.assert_called_once_with("Some clip", timeout=300.0)
+
+
+@patch("dictation_app.dialogs._prompt_server_error_applescript")
+@patch("dictation_app.dialogs.subprocess.run")
+def test_prompt_server_error_fallback_on_nonzero_exit(mock_subproc, mock_as):
+    mock_subproc.return_value = MagicMock(
+        returncode=1,
+        stderr="Process crashed",
+        stdout="",
+    )
+    mock_as.return_value = "model-b"
+
+    result = prompt_server_error_retry("model-a", available_models=CUSTOM_MODELS)
+    assert result == "model-b"
+    mock_as.assert_called_once()
+
