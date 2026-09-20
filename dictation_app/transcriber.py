@@ -22,6 +22,14 @@ except ImportError:
     AzureSpeechRateLimitError = None
     AzureTranscriber = None
 
+from .groq_client import (
+    GroqAuthError,
+    GroqError,
+    GroqRateLimitError,
+    GroqServerError,
+    GroqTranscriber,
+)
+
 from .config import DEFAULT_MODEL, DICTATION_LANGUAGES
 from .gemini_client import GeminiClientBase
 
@@ -30,6 +38,8 @@ def is_rate_limit_error(exc: Exception | None) -> bool:
     """Check if an exception represents an API rate limit or quota exhaustion (429)."""
     if exc is None:
         return False
+    if GroqRateLimitError is not None and isinstance(exc, GroqRateLimitError):
+        return True
     if AzureSpeechRateLimitError is not None and isinstance(exc, AzureSpeechRateLimitError):
         return True
     if genai_errors is not None and isinstance(exc, genai_errors.APIError) and exc.code == 429:
@@ -59,6 +69,8 @@ def is_server_error(exc: Exception | None) -> bool:
     """Check if an exception represents a 503 Service Unavailable or transient server error."""
     if exc is None:
         return False
+    if GroqServerError is not None and isinstance(exc, GroqServerError):
+        return True
     if genai_errors is not None and isinstance(exc, genai_errors.APIError) and exc.code == 503:
         return True
     code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
@@ -82,6 +94,14 @@ def is_server_error(exc: Exception | None) -> bool:
 
 def describe_error(exc: Exception) -> str:
     """Turn a transcription exception into a short, user-facing reason."""
+    if GroqRateLimitError is not None and isinstance(exc, GroqRateLimitError):
+        return "Groq rate limit hit (quota exceeded) - wait a bit or switch model."
+    if GroqAuthError is not None and isinstance(exc, GroqAuthError):
+        return "Groq API key rejected - check GROQ_API_KEY in ~/.config/dictation/.env."
+    if GroqServerError is not None and isinstance(exc, GroqServerError):
+        return f"Groq server error ({exc.status_code or 503}) - try again shortly."
+    if GroqError is not None and isinstance(exc, GroqError):
+        return f"Groq error: {exc.details or exc}"
     if AzureSpeechRateLimitError is not None and isinstance(exc, AzureSpeechRateLimitError):
         return (
             "Azure Speech rate limit hit (free-tier quota exceeded) - wait a bit or switch model."
@@ -176,6 +196,8 @@ class GeminiTranscriber(GeminiClientBase):
 
 def get_transcriber(model: str = DEFAULT_MODEL):
     """Return appropriate speech-to-text transcriber instance based on model name."""
+    if model.startswith("groq"):
+        return GroqTranscriber(model=model)
     if model.startswith("azure"):
         if AzureTranscriber is None:
             raise ImportError(

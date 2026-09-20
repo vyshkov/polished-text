@@ -34,7 +34,7 @@ from .config import (
     save_corrector_model_to_env,
     save_model_to_env,
 )
-from .corrector import GeminiCorrector
+from .corrector import GeminiCorrector, get_corrector
 from .dialogs import (
     get_frontmost_app,
     prompt_model_switch_on_rate_limit,
@@ -56,7 +56,7 @@ from .transcriber import (
     is_rate_limit_error,
     is_server_error,
 )
-from .writer import GeminiWriter
+from .writer import GeminiWriter, get_writer
 
 logger = get_logger("Engine")
 
@@ -155,9 +155,19 @@ class DictationEngine:
         )
 
     def _create_transcriber(self, model: str):
-        if model.startswith("azure"):
+        if model.startswith("azure") or model.startswith("groq"):
             return get_transcriber(model=model)
         return GeminiTranscriber(model=model)
+
+    def _create_corrector(self, model: str):
+        if model.startswith("groq"):
+            return get_corrector(model=model)
+        return GeminiCorrector(model=model)
+
+    def _create_writer(self, model: str):
+        if model.startswith("groq"):
+            return get_writer(model=model)
+        return GeminiWriter(model=model)
 
     def set_model(self, new_model: str, update_hud: bool = True):
         """Dynamically switch the speech-to-text model, reinitialize transcriber, and persist."""
@@ -190,7 +200,7 @@ class DictationEngine:
             return
 
         self.corrector_model = new_model
-        self._corrector = GeminiCorrector(model=new_model)
+        self._corrector = self._create_corrector(new_model)
         self._writer = None
         logger.info("Corrector model switched dynamically: %s -> %s", old_model, new_model)
 
@@ -213,13 +223,13 @@ class DictationEngine:
     @property
     def corrector(self):
         if self._corrector is None:
-            self._corrector = GeminiCorrector(model=self.corrector_model)
+            self._corrector = self._create_corrector(self.corrector_model)
         return self._corrector
 
     @property
     def writer(self):
         if self._writer is None or self._writer.model != self.corrector_model:
-            self._writer = GeminiWriter(model=self.corrector_model)
+            self._writer = self._create_writer(self.corrector_model)
         return self._writer
 
     def process_and_transcribe(self):

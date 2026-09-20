@@ -65,3 +65,13 @@ class GeminiCorrector(GeminiClientBase):
 
         corrected = response.text.strip() if response.text else ""
         return corrected
+
+
+def get_corrector(model: str = DEFAULT_CORRECTOR_MODEL):
+    """Return appropriate text corrector instance based on model name."""
+    if model.startswith("groq"):
+        from .groq_client import GroqCorrector
+
+        return GroqCorrector(model=model)
+    return GeminiCorrector(model=model)
+

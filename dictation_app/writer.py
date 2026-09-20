@@ -61,3 +61,13 @@ class GeminiWriter(GeminiClientBase):
 
         draft = response.text.strip() if response.text else ""
         return draft
+
+
+def get_writer(model: str = DEFAULT_CORRECTOR_MODEL):
+    """Return appropriate text writer instance based on model name."""
+    if model.startswith("groq"):
+        from .groq_client import GroqWriter
+
+        return GroqWriter(model=model)
+    return GeminiWriter(model=model)
+

@@ -61,7 +61,11 @@ AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY", "").strip()
 AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION", "eastus").strip()
 AZURE_SPEECH_URL = os.getenv("AZURE_SPEECH_URL", "").strip()
 
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+
 AVAILABLE_MODELS: list[tuple[str, str]] = [
+    ("groq:whisper-large-v3-turbo", "Groq Whisper Large V3 Turbo (Ultra Fast)"),
+    ("groq:whisper-large-v3", "Groq Whisper Large V3 (High Accuracy)"),
     ("azure-speech", "Azure Speech (Standard Dictation)"),
     ("gemini-3.8-flash", "Gemini 3.8 Flash (Latest)"),
     ("gemini-3.7-flash", "Gemini 3.7 Flash"),
@@ -84,6 +88,11 @@ AVAILABLE_CORRECTOR_MODELS: list[tuple[str, str]] = [
     ("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite"),
     ("gemini-flash-latest", "Gemini Flash Latest"),
     ("gemini-flash-lite-latest", "Gemini Flash-Lite Latest"),
+    ("groq:openai/gpt-oss-120b", "Groq GPT OSS 120B (High Quality)"),
+    ("groq:openai/gpt-oss-20b", "Groq GPT OSS 20B (Ultra Fast)"),
+    ("groq:qwen/qwen3.8-27b", "Groq Qwen 3.8 27B (Fast)"),
+    ("groq:groq/compound", "Groq Compound"),
+    ("groq:groq/compound-mini", "Groq Compound Mini"),
 ]
 
 
