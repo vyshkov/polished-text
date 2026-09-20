@@ -113,6 +113,151 @@ def get_model_display_name(
     return model_id
 
 
+DICTATION_MODEL_METADATA: dict[str, dict[str, str]] = {
+    "groq:whisper-large-v3-turbo": {
+        "use_case": "Ultra-fast speech dictation (~0.25s)",
+        "limits": "Free: 20 RPM, 2k RPD",
+    },
+    "groq:whisper-large-v3": {
+        "use_case": "High-accuracy multilingual dictation",
+        "limits": "Free: 20 RPM, 2k RPD",
+    },
+    "azure-speech": {
+        "use_case": "Standard speech dictation",
+        "limits": "Free: 5 hrs/mo (F0 tier)",
+    },
+    "gemini-3.8-flash": {
+        "use_case": "Latest multimodal audio understanding",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+    "gemini-3.7-flash": {
+        "use_case": "Fast reasoning & transcription",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+    "gemini-3.6-flash": {
+        "use_case": "Optimized low-latency dictation",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+    "gemini-3.5-flash": {
+        "use_case": "Balanced speed & comprehension",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+    "gemini-3.5-flash-lite": {
+        "use_case": "Fast lightweight speech dictation",
+        "limits": "Free: 30 RPM, 1.5k RPD",
+    },
+    "gemini-3.1-flash-lite": {
+        "use_case": "Ultra-lightweight speech dictation",
+        "limits": "Free: 30 RPM, 1.5k RPD",
+    },
+    "gemini-flash-latest": {
+        "use_case": "Always newest stable Flash dictation",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+    "gemini-flash-lite-latest": {
+        "use_case": "Always newest lightweight Flash dictation",
+        "limits": "Free: 30 RPM, 1.5k RPD",
+    },
+    "gemini-3.5-transcribe": {
+        "use_case": "Audio-optimized speech transcription",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+    "gemini-3-flash-preview": {
+        "use_case": "Preview release of Gemini 3 Flash",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+}
+
+CORRECTOR_MODEL_METADATA: dict[str, dict[str, str]] = {
+    "gemini-3.5-flash-lite": {
+        "use_case": "Fast grammar, typo fixes & style polish",
+        "limits": "Free: 30 RPM, 1.5k RPD",
+    },
+    "gemini-3.6-flash": {
+        "use_case": "High-quality text proofreading & rewrite",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+    "gemini-3.8-flash": {
+        "use_case": "State-of-the-art drafting & editing",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+    "gemini-3.7-flash": {
+        "use_case": "Advanced text reasoning & drafting",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+    "gemini-3.5-flash": {
+        "use_case": "General proofreading & copywriting",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+    "gemini-3.1-flash-lite": {
+        "use_case": "Quick corrections & high free quota",
+        "limits": "Free: 30 RPM, 1.5k RPD",
+    },
+    "gemini-flash-latest": {
+        "use_case": "Always newest stable Flash for editing",
+        "limits": "Free: 15 RPM, 1.5k RPD",
+    },
+    "gemini-flash-lite-latest": {
+        "use_case": "Always newest Flash-Lite for fast polish",
+        "limits": "Free: 30 RPM, 1.5k RPD",
+    },
+    "groq:openai/gpt-oss-120b": {
+        "use_case": "Nuanced copy & articulate drafting",
+        "limits": "Free: 30 RPM, 1k RPD",
+    },
+    "groq:openai/gpt-oss-20b": {
+        "use_case": "Ultra-fast proofreading (<0.3s)",
+        "limits": "Free: 30 RPM, 1k RPD",
+    },
+    "groq:qwen/qwen3.8-27b": {
+        "use_case": "Fast multilingual copy & polish",
+        "limits": "Free: 30 RPM, 1k RPD",
+    },
+    "groq:groq/compound": {
+        "use_case": "Compound multi-agent editing & synthesis",
+        "limits": "Free: 30 RPM, 1k RPD",
+    },
+    "groq:groq/compound-mini": {
+        "use_case": "Fast compound model for quick polish",
+        "limits": "Free: 30 RPM, 1k RPD",
+    },
+}
+
+
+def get_model_info(model_id: str, category: str = "dictation") -> dict[str, str]:
+    """Return dictionary with 'use_case' and 'limits' for a given model ID and category."""
+    lookup = (
+        CORRECTOR_MODEL_METADATA
+        if category in ("corrector", "polish")
+        else DICTATION_MODEL_METADATA
+    )
+    if model_id in lookup:
+        return lookup[model_id]
+    alt_lookup = (
+        DICTATION_MODEL_METADATA
+        if lookup is CORRECTOR_MODEL_METADATA
+        else CORRECTOR_MODEL_METADATA
+    )
+    if model_id in alt_lookup:
+        return alt_lookup[model_id]
+
+    if "whisper" in model_id.lower():
+        return {"use_case": "Speech-to-text dictation", "limits": "Free: 20 RPM, 2k RPD"}
+    if "groq" in model_id.lower():
+        return {"use_case": "Fast Groq model", "limits": "Free: 30 RPM, 1k RPD"}
+    if "flash-lite" in model_id.lower():
+        return {"use_case": "Fast lightweight model", "limits": "Free: 30 RPM, 1.5k RPD"}
+    if "gemini" in model_id.lower():
+        return {"use_case": "Gemini AI model", "limits": "Free: 15 RPM, 1.5k RPD"}
+    return {"use_case": "AI model", "limits": "Free tier available"}
+
+
+def get_model_subtitle(model_id: str, category: str = "dictation") -> str:
+    """Return concise one-line summary for menu items (e.g. 'Use case • Free limits')."""
+    info = get_model_info(model_id, category=category)
+    return f"{info['use_case']} • {info['limits']}"
+
+
 def _save_env_var(var_name: str, value: str, env_path: Path | None = None) -> bool:
     """Persist an environment variable key=value to ~/.config/dictation/.env."""
     target_path = env_path or (CONFIG_DIR / ".env")

@@ -11,6 +11,8 @@ from .config import (
     ENABLE_MENUBAR,
     LOG_FILE,
     get_model_display_name,
+    get_model_info,
+    get_model_subtitle,
 )
 from .history import HistoryManager
 from .logger import clear_log_file, get_logger, open_log_file
@@ -209,6 +211,8 @@ class DictationMenuBar:
         model_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             f"Dictation Model: {current_display}", None, ""
         )
+        if hasattr(model_item, "setSubtitle_"):
+            model_item.setSubtitle_(get_model_subtitle(current_model, category="dictation"))
         model_item.setImage_(_make_sf_symbol("waveform") or _make_sf_symbol("mic"))
         model_item.setEnabled_(True)
 
@@ -225,6 +229,17 @@ class DictationMenuBar:
                 sub_item.setState_(AppKit.NSControlStateValueOn)
             else:
                 sub_item.setState_(AppKit.NSControlStateValueOff)
+
+            subtitle = get_model_subtitle(model_id, category="dictation")
+            if hasattr(sub_item, "setSubtitle_"):
+                sub_item.setSubtitle_(subtitle)
+
+            info = get_model_info(model_id, category="dictation")
+            sub_item.setToolTip_(
+                f"{display_name}\n"
+                f"• Use Case: {info['use_case']}\n"
+                f"• Free Limit: {info['limits']}"
+            )
             model_submenu.addItem_(sub_item)
 
         model_item.setSubmenu_(model_submenu)
@@ -242,6 +257,8 @@ class DictationMenuBar:
         corrector_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             f"Polish Model: {corrector_display}", None, ""
         )
+        if hasattr(corrector_item, "setSubtitle_"):
+            corrector_item.setSubtitle_(get_model_subtitle(current_corrector, category="polish"))
         corrector_item.setImage_(_make_sf_symbol("sparkles"))
         corrector_item.setEnabled_(True)
 
@@ -258,6 +275,17 @@ class DictationMenuBar:
                 sub_item.setState_(AppKit.NSControlStateValueOn)
             else:
                 sub_item.setState_(AppKit.NSControlStateValueOff)
+
+            subtitle = get_model_subtitle(model_id, category="polish")
+            if hasattr(sub_item, "setSubtitle_"):
+                sub_item.setSubtitle_(subtitle)
+
+            info = get_model_info(model_id, category="polish")
+            sub_item.setToolTip_(
+                f"{display_name}\n"
+                f"• Use Case: {info['use_case']}\n"
+                f"• Free Limit: {info['limits']}"
+            )
             corrector_submenu.addItem_(sub_item)
 
         corrector_item.setSubmenu_(corrector_submenu)

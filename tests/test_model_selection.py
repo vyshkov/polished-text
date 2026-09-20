@@ -3,7 +3,11 @@ from unittest.mock import MagicMock, patch
 from dictation_app.config import (
     AVAILABLE_CORRECTOR_MODELS,
     AVAILABLE_MODELS,
+    CORRECTOR_MODEL_METADATA,
+    DICTATION_MODEL_METADATA,
     get_model_display_name,
+    get_model_info,
+    get_model_subtitle,
     save_corrector_model_to_env,
     save_model_to_env,
 )
@@ -193,3 +197,82 @@ def test_engine_set_corrector_model(mock_corrector_cls, mock_save_env):
         mock_save_env.assert_called_once_with("gemini-3.6-flash")
         mock_corrector_cls.assert_called_with(model="gemini-3.6-flash")
         engine.hud.show_done.assert_called_once()
+
+
+def test_model_metadata_and_subtitles():
+    # Every dictation model has use_case and limits
+    for model_id, _ in AVAILABLE_MODELS:
+        info = get_model_info(model_id, category="dictation")
+        assert "use_case" in info and info["use_case"]
+        assert "limits" in info and info["limits"]
+        subtitle = get_model_subtitle(model_id, category="dictation")
+        assert "•" in subtitle
+        assert info["use_case"] in subtitle
+        assert info["limits"] in subtitle
+
+    # Every corrector model has use_case and limits
+    for model_id, _ in AVAILABLE_CORRECTOR_MODELS:
+        info = get_model_info(model_id, category="polish")
+        assert "use_case" in info and info["use_case"]
+        assert "limits" in info and info["limits"]
+        subtitle = get_model_subtitle(model_id, category="polish")
+        assert "•" in subtitle
+        assert info["use_case"] in subtitle
+        assert info["limits"] in subtitle
+
+    # Unknown model fallback
+    unknown_info = get_model_info("unknown-model-xyz")
+    assert "use_case" in unknown_info
+    assert "limits" in unknown_info
+    assert "•" in get_model_subtitle("unknown-model-xyz")
+
+
+def test_menubar_model_subtitles_and_tooltips():
+    history_mock = MagicMock()
+    menubar = DictationMenuBar(
+        history=history_mock,
+        get_current_model=lambda: "groq:whisper-large-v3-turbo",
+        get_current_corrector_model=lambda: "groq:openai/gpt-oss-120b",
+        enabled=True,
+    )
+
+    # Find Dictation Model menu item and inspect its submenu
+    items = menubar.menu.itemArray()
+    dict_item = next((it for it in items if "Dictation Model:" in it.title()), None)
+    assert dict_item is not None
+    if hasattr(dict_item, "subtitle"):
+        assert "Ultra-fast" in dict_item.subtitle()
+
+    dict_sub = dict_item.submenu()
+    assert dict_sub is not None
+    sub_items = dict_sub.itemArray()
+    assert len(sub_items) == len(AVAILABLE_MODELS)
+
+    # Check each sub_item has subtitle and toolTip
+    for sub_it in sub_items:
+        model_id = sub_it.representedObject()
+        info = get_model_info(model_id, category="dictation")
+        if hasattr(sub_it, "subtitle"):
+            assert sub_it.subtitle() == f"{info['use_case']} • {info['limits']}"
+        assert info["use_case"] in sub_it.toolTip()
+        assert info["limits"] in sub_it.toolTip()
+
+    # Find Polish Model menu item and inspect its submenu
+    corr_item = next((it for it in items if "Polish Model:" in it.title()), None)
+    assert corr_item is not None
+    if hasattr(corr_item, "subtitle"):
+        assert "Nuanced copy" in corr_item.subtitle()
+
+    corr_sub = corr_item.submenu()
+    assert corr_sub is not None
+    corr_sub_items = corr_sub.itemArray()
+    assert len(corr_sub_items) == len(AVAILABLE_CORRECTOR_MODELS)
+
+    for sub_it in corr_sub_items:
+        model_id = sub_it.representedObject()
+        info = get_model_info(model_id, category="polish")
+        if hasattr(sub_it, "subtitle"):
+            assert sub_it.subtitle() == f"{info['use_case']} • {info['limits']}"
+        assert info["use_case"] in sub_it.toolTip()
+        assert info["limits"] in sub_it.toolTip()
+
