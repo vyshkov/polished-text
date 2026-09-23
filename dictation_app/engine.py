@@ -466,7 +466,9 @@ class DictationEngine:
             frontmost_app = get_frontmost_app()
             clip_text = get_clipboard_text()
 
-            dialog_result = prompt_write_dialog(clipboard_preview=clip_text, model=self.model)
+            dialog_result = prompt_write_dialog(
+                clipboard_preview=clip_text, model=self.writer.model
+            )
             if not dialog_result:
                 logger.info("Write dialog cancelled or dismissed")
                 return
