@@ -236,9 +236,7 @@ class DictationMenuBar:
 
             info = get_model_info(model_id, category="dictation")
             sub_item.setToolTip_(
-                f"{display_name}\n"
-                f"• Use Case: {info['use_case']}\n"
-                f"• Free Limit: {info['limits']}"
+                f"{display_name}\n• Use Case: {info['use_case']}\n• Free Limit: {info['limits']}"
             )
             model_submenu.addItem_(sub_item)
 
@@ -282,9 +280,7 @@ class DictationMenuBar:
 
             info = get_model_info(model_id, category="polish")
             sub_item.setToolTip_(
-                f"{display_name}\n"
-                f"• Use Case: {info['use_case']}\n"
-                f"• Free Limit: {info['limits']}"
+                f"{display_name}\n• Use Case: {info['use_case']}\n• Free Limit: {info['limits']}"
             )
             corrector_submenu.addItem_(sub_item)
 

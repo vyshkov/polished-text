@@ -359,8 +359,7 @@ def test_prompt_server_error_fallback_on_nonzero_exit(mock_subproc, mock_as):
 def test_prompt_write_dialog_passes_model(mock_subproc):
     mock_subproc.return_value = MagicMock(
         returncode=0,
-        stdout=json.dumps({"status": "ok", "prompt": "Prompt", "include_clipboard": True})
-        + "\n",
+        stdout=json.dumps({"status": "ok", "prompt": "Prompt", "include_clipboard": True}) + "\n",
     )
 
     result = prompt_write_dialog(clipboard_preview="Context", model="gemini-3.6-flash")
@@ -418,5 +417,3 @@ def test_write_dialog_controller_cleanup_on_cancel():
     controller.cleanup()
     mock_recorder.cancel.assert_called_once()
     assert controller.is_recording is False
-
-

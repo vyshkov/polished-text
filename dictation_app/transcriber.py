@@ -22,6 +22,8 @@ except ImportError:
     AzureSpeechRateLimitError = None
     AzureTranscriber = None
 
+from .config import DEFAULT_MODEL, DICTATION_LANGUAGES
+from .gemini_client import GeminiClientBase
 from .groq_client import (
     GroqAuthError,
     GroqError,
@@ -29,9 +31,6 @@ from .groq_client import (
     GroqServerError,
     GroqTranscriber,
 )
-
-from .config import DEFAULT_MODEL, DICTATION_LANGUAGES
-from .gemini_client import GeminiClientBase
 
 
 def is_rate_limit_error(exc: Exception | None) -> bool:

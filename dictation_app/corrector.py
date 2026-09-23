@@ -74,4 +74,3 @@ def get_corrector(model: str = DEFAULT_CORRECTOR_MODEL):
 
         return GroqCorrector(model=model)
     return GeminiCorrector(model=model)
-

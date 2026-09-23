@@ -70,4 +70,3 @@ def get_writer(model: str = DEFAULT_CORRECTOR_MODEL):
 
         return GroqWriter(model=model)
     return GeminiWriter(model=model)
-

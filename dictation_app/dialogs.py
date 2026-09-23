@@ -8,20 +8,6 @@ import tempfile
 import threading
 from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_VENV_PYTHON = _PROJECT_ROOT / "venv" / "bin" / "python"
-
-
-def _get_dialog_cmd_and_env(subcommand: str) -> tuple[list[str], dict[str, str], str]:
-    """Get the command, environment, and working directory to reliably run a dialog helper."""
-    py_exec = str(_VENV_PYTHON) if _VENV_PYTHON.exists() else sys.executable
-    env = os.environ.copy()
-    pythonpath = env.get("PYTHONPATH", "")
-    root_str = str(_PROJECT_ROOT)
-    env["PYTHONPATH"] = f"{root_str}:{pythonpath}" if pythonpath else root_str
-    return [py_exec, "-m", "dictation_app.dialogs", subcommand], env, root_str
-
-
 try:
     import AppKit
     import objc
@@ -34,6 +20,19 @@ from .config import AVAILABLE_MODELS, DEFAULT_MODEL, get_model_display_name
 from .logger import get_logger
 
 logger = get_logger("Dialogs")
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_VENV_PYTHON = _PROJECT_ROOT / "venv" / "bin" / "python"
+
+
+def _get_dialog_cmd_and_env(subcommand: str) -> tuple[list[str], dict[str, str], str]:
+    """Get the command, environment, and working directory to reliably run a dialog helper."""
+    py_exec = str(_VENV_PYTHON) if _VENV_PYTHON.exists() else sys.executable
+    env = os.environ.copy()
+    pythonpath = env.get("PYTHONPATH", "")
+    root_str = str(_PROJECT_ROOT)
+    env["PYTHONPATH"] = f"{root_str}:{pythonpath}" if pythonpath else root_str
+    return [py_exec, "-m", "dictation_app.dialogs", subcommand], env, root_str
 
 
 def _make_sf_symbol(name: str):
@@ -205,7 +204,6 @@ if HAS_APPKIT:
                     self.temp_audio_path.unlink()
             except Exception:
                 pass
-
 
 
 def _escape_applescript(s: str) -> str:
@@ -557,10 +555,12 @@ def prompt_write_dialog(
 
     Returns: (prompt, include_clipboard) if submitted, or None if cancelled.
     """
-    payload = json.dumps({
-        "clipboard_preview": clipboard_preview or "",
-        "model": model or DEFAULT_MODEL,
-    })
+    payload = json.dumps(
+        {
+            "clipboard_preview": clipboard_preview or "",
+            "model": model or DEFAULT_MODEL,
+        }
+    )
     cmd, env, cwd = _get_dialog_cmd_and_env("write-prompt")
     try:
         proc = subprocess.run(
@@ -684,7 +684,9 @@ def _run_write_prompt_cocoa():
 
         alert = AppKit.NSAlert.alloc().init()
         alert.setMessageText_("Write with Gemini")
-        alert.setInformativeText_("Enter instructions or dictate a prompt for what you want to write:")
+        alert.setInformativeText_(
+            "Enter instructions or dictate a prompt for what you want to write:"
+        )
         alert.addButtonWithTitle_("OK")
         btn_cancel = alert.addButtonWithTitle_("Cancel")
         btn_cancel.setKeyEquivalent_("\x1b")
@@ -727,7 +729,9 @@ def _run_write_prompt_cocoa():
         status_label.setSelectable_(False)
         status_label.setFont_(AppKit.NSFont.systemFontOfSize_(11.0))
         status_label.setTextColor_(AppKit.NSColor.secondaryLabelColor())
-        status_label.setStringValue_("💡 Click 🎙️ to dictate instructions without altering clipboard.")
+        status_label.setStringValue_(
+            "💡 Click 🎙️ to dictate instructions without altering clipboard."
+        )
         view.addSubview_(status_label)
 
         # Clipboard context inclusion checkbox (width: 440, height: 18 at x=0, y=2)

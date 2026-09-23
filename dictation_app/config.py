@@ -234,9 +234,7 @@ def get_model_info(model_id: str, category: str = "dictation") -> dict[str, str]
     if model_id in lookup:
         return lookup[model_id]
     alt_lookup = (
-        DICTATION_MODEL_METADATA
-        if lookup is CORRECTOR_MODEL_METADATA
-        else CORRECTOR_MODEL_METADATA
+        DICTATION_MODEL_METADATA if lookup is CORRECTOR_MODEL_METADATA else CORRECTOR_MODEL_METADATA
     )
     if model_id in alt_lookup:
         return alt_lookup[model_id]

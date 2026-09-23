@@ -1,7 +1,7 @@
 """Unit tests for Groq speech-to-text, corrector, and writer clients."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
+
 import httpx
 import pytest
 
@@ -9,7 +9,6 @@ from dictation_app.corrector import GeminiCorrector, get_corrector
 from dictation_app.groq_client import (
     GroqAuthError,
     GroqCorrector,
-    GroqError,
     GroqRateLimitError,
     GroqServerError,
     GroqTranscriber,
@@ -152,9 +151,7 @@ def test_groq_corrector_empty_text():
 def test_groq_writer_without_context(mock_post):
     mock_resp = MagicMock()
     mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "choices": [{"message": {"content": "Here is drafted copy."}}]
-    }
+    mock_resp.json.return_value = {"choices": [{"message": {"content": "Here is drafted copy."}}]}
     mock_post.return_value = mock_resp
 
     writer = GroqWriter(api_key="gsk_test123", model="groq:openai/gpt-oss-120b")
@@ -252,33 +249,36 @@ def test_engine_groq_routing():
 def test_engine_set_model_groq(mock_save_env):
     from dictation_app.engine import DictationEngine
 
-    with patch("dictation_app.engine.DictationMenuBar"):
-        with patch("dictation_app.gemini_client.genai.Client"):
-            engine = DictationEngine(model="gemini-3.5-flash-lite")
-            engine.hud = MagicMock()
+    with (
+        patch("dictation_app.engine.DictationMenuBar"),
+        patch("dictation_app.gemini_client.genai.Client"),
+    ):
+        engine = DictationEngine(model="gemini-3.5-flash-lite")
+        engine.hud = MagicMock()
 
-            engine.set_model("groq:whisper-large-v3-turbo")
+        engine.set_model("groq:whisper-large-v3-turbo")
 
-            assert engine.model == "groq:whisper-large-v3-turbo"
-            mock_save_env.assert_called_once_with("groq:whisper-large-v3-turbo")
-            assert isinstance(engine.transcriber, GroqTranscriber)
-            engine.hud.show_done.assert_called_once()
+        assert engine.model == "groq:whisper-large-v3-turbo"
+        mock_save_env.assert_called_once_with("groq:whisper-large-v3-turbo")
+        assert isinstance(engine.transcriber, GroqTranscriber)
+        engine.hud.show_done.assert_called_once()
 
 
 @patch("dictation_app.engine.save_corrector_model_to_env")
 def test_engine_set_corrector_model_groq(mock_save_env):
     from dictation_app.engine import DictationEngine
 
-    with patch("dictation_app.engine.DictationMenuBar"):
-        with patch("dictation_app.gemini_client.genai.Client"):
-            engine = DictationEngine(corrector_model="gemini-3.5-flash-lite")
-            engine.hud = MagicMock()
+    with (
+        patch("dictation_app.engine.DictationMenuBar"),
+        patch("dictation_app.gemini_client.genai.Client"),
+    ):
+        engine = DictationEngine(corrector_model="gemini-3.5-flash-lite")
+        engine.hud = MagicMock()
 
-            engine.set_corrector_model("groq:openai/gpt-oss-120b")
+        engine.set_corrector_model("groq:openai/gpt-oss-120b")
 
-            assert engine.corrector_model == "groq:openai/gpt-oss-120b"
-            mock_save_env.assert_called_once_with("groq:openai/gpt-oss-120b")
-            assert isinstance(engine.corrector, GroqCorrector)
-            assert isinstance(engine.writer, GroqWriter)
-            engine.hud.show_done.assert_called_once()
-
+        assert engine.corrector_model == "groq:openai/gpt-oss-120b"
+        mock_save_env.assert_called_once_with("groq:openai/gpt-oss-120b")
+        assert isinstance(engine.corrector, GroqCorrector)
+        assert isinstance(engine.writer, GroqWriter)
+        engine.hud.show_done.assert_called_once()

@@ -3,8 +3,6 @@ from unittest.mock import MagicMock, patch
 from dictation_app.config import (
     AVAILABLE_CORRECTOR_MODELS,
     AVAILABLE_MODELS,
-    CORRECTOR_MODEL_METADATA,
-    DICTATION_MODEL_METADATA,
     get_model_display_name,
     get_model_info,
     get_model_subtitle,
@@ -203,8 +201,8 @@ def test_model_metadata_and_subtitles():
     # Every dictation model has use_case and limits
     for model_id, _ in AVAILABLE_MODELS:
         info = get_model_info(model_id, category="dictation")
-        assert "use_case" in info and info["use_case"]
-        assert "limits" in info and info["limits"]
+        assert info.get("use_case")
+        assert info.get("limits")
         subtitle = get_model_subtitle(model_id, category="dictation")
         assert "•" in subtitle
         assert info["use_case"] in subtitle
@@ -213,8 +211,8 @@ def test_model_metadata_and_subtitles():
     # Every corrector model has use_case and limits
     for model_id, _ in AVAILABLE_CORRECTOR_MODELS:
         info = get_model_info(model_id, category="polish")
-        assert "use_case" in info and info["use_case"]
-        assert "limits" in info and info["limits"]
+        assert info.get("use_case")
+        assert info.get("limits")
         subtitle = get_model_subtitle(model_id, category="polish")
         assert "•" in subtitle
         assert info["use_case"] in subtitle
@@ -275,4 +273,3 @@ def test_menubar_model_subtitles_and_tooltips():
             assert sub_it.subtitle() == f"{info['use_case']} • {info['limits']}"
         assert info["use_case"] in sub_it.toolTip()
         assert info["limits"] in sub_it.toolTip()
-

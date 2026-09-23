@@ -1,7 +1,6 @@
 """Groq API client and models for speech-to-text, text correction, and drafting."""
 
 from collections.abc import Sequence
-import os
 from pathlib import Path
 
 import httpx
@@ -52,7 +51,6 @@ def _normalize_groq_model(model: str) -> str:
 def _handle_groq_error(response: httpx.Response) -> None:
     """Parse Groq error response and raise specific GroqError subclass."""
     status = response.status_code
-    err_type = None
     err_code = None
     err_msg = response.text
 
@@ -61,7 +59,6 @@ def _handle_groq_error(response: httpx.Response) -> None:
         if isinstance(data, dict) and "error" in data:
             err_dict = data["error"]
             err_msg = err_dict.get("message", response.text)
-            err_type = err_dict.get("type")
             err_code = err_dict.get("code")
     except Exception:
         pass
@@ -155,7 +152,9 @@ class GroqTranscriber(GroqClientBase):
 
         res_json = response.json()
         transcribed_text = str(res_json.get("text") or "").strip()
-        logger.info("Groq transcribed audio in model %s: %d chars", self.model, len(transcribed_text))
+        logger.info(
+            "Groq transcribed audio in model %s: %d chars", self.model, len(transcribed_text)
+        )
         return transcribed_text
 
 
