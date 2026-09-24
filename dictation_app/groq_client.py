@@ -33,6 +33,10 @@ class GroqAuthError(GroqError):
     """Raised when Groq API key is invalid or unauthorized (401/403)."""
 
 
+class GroqAccessDeniedError(GroqError):
+    """Raised when Groq/Cloudflare blocks access due to network, VPN, datacenter IP, or geo-blocking (403)."""
+
+
 class GroqRateLimitError(GroqError):
     """Raised when Groq rate limits or token quotas are exceeded (429)."""
 
@@ -63,7 +67,17 @@ def _handle_groq_error(response: httpx.Response) -> None:
     except Exception:
         pass
 
-    if status in (401, 403):
+    if status == 403 and any(
+        kw in err_msg.lower()
+        for kw in ("network settings", "access denied", "blocked by cloudflare")
+    ):
+        raise GroqAccessDeniedError(
+            f"Groq access blocked by network/VPN settings ({status}): {err_msg}",
+            status_code=status,
+            code=err_code or "access_denied",
+            details=err_msg,
+        )
+    elif status in (401, 403):
         raise GroqAuthError(
             f"Groq API key rejected ({status}): {err_msg}",
             status_code=status,

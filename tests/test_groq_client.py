@@ -7,6 +7,7 @@ import pytest
 
 from dictation_app.corrector import GeminiCorrector, get_corrector
 from dictation_app.groq_client import (
+    GroqAccessDeniedError,
     GroqAuthError,
     GroqCorrector,
     GroqRateLimitError,
@@ -33,6 +34,17 @@ def test_normalize_groq_model():
 
 
 def test_error_handling_helpers():
+    # 403 Cloudflare / Network settings block
+    resp_403_net = httpx.Response(
+        403,
+        json={"error": {"message": "Access denied. Please check your network settings."}},
+        request=httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions"),
+    )
+    with pytest.raises(GroqAccessDeniedError) as exc_403_net:
+        _handle_groq_error(resp_403_net)
+    assert "network" in str(exc_403_net.value).lower()
+    assert "VPN/network" in describe_error(exc_403_net.value)
+
     # 401 Auth Error
     resp_401 = httpx.Response(
         401,

@@ -25,6 +25,7 @@ except ImportError:
 from .config import DEFAULT_MODEL, DICTATION_LANGUAGES
 from .gemini_client import GeminiClientBase
 from .groq_client import (
+    GroqAccessDeniedError,
     GroqAuthError,
     GroqError,
     GroqRateLimitError,
@@ -95,6 +96,8 @@ def describe_error(exc: Exception) -> str:
     """Turn a transcription exception into a short, user-facing reason."""
     if GroqRateLimitError is not None and isinstance(exc, GroqRateLimitError):
         return "Groq rate limit hit (quota exceeded) - wait a bit or switch model."
+    if GroqAccessDeniedError is not None and isinstance(exc, GroqAccessDeniedError):
+        return "Groq access denied (blocked by VPN/network) - pause VPN or switch server."
     if GroqAuthError is not None and isinstance(exc, GroqAuthError):
         return "Groq API key rejected - check GROQ_API_KEY in ~/.config/dictation/.env."
     if GroqServerError is not None and isinstance(exc, GroqServerError):
@@ -167,10 +170,11 @@ class GeminiTranscriber(GeminiClientBase):
         )
 
         config_kwargs = {
-            "system_instruction": system_instruction,
             "temperature": 0.0,
             "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
         }
+        if "transcribe" not in self.model:
+            config_kwargs["system_instruction"] = system_instruction
         thinking_cfg = get_model_thinking_config(self.model)
         if thinking_cfg is not None:
             config_kwargs["thinking_config"] = thinking_cfg
