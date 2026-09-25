@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import ClassVar
 
 import httpx
 
@@ -127,7 +128,7 @@ class GroqClientBase:
 class GroqTranscriber(GroqClientBase):
     """Transcribes audio using Groq Whisper models (whisper-large-v3-turbo, whisper-large-v3)."""
 
-    SLAVIC_OR_CYRILLIC_LANGUAGES = {
+    SLAVIC_OR_CYRILLIC_LANGUAGES: ClassVar[set[str]] = {
         "russian",
         "ru",
         "bulgarian",
@@ -149,7 +150,7 @@ class GroqTranscriber(GroqClientBase):
         "croatian",
         "hr",
     }
-    RUSSIAN_ONLY_CHARS = set("ыэъёЫЭЪЁ")
+    RUSSIAN_ONLY_CHARS: ClassVar[set[str]] = set("ыэъёЫЭЪЁ")
 
     def __init__(
         self,
@@ -268,11 +269,7 @@ class GroqTranscriber(GroqClientBase):
             return transcribed_text
 
         # If detected language is not allowed or Russian letters leaked, determine correct fallback
-        if (
-            detected_lang in self.SLAVIC_OR_CYRILLIC_LANGUAGES
-            or has_cyrillic
-            or has_russian_chars
-        ):
+        if detected_lang in self.SLAVIC_OR_CYRILLIC_LANGUAGES or has_cyrillic or has_russian_chars:
             fallback_lang = "uk" if "uk" in allowed_iso_codes else allowed_iso_codes[0]
         else:
             fallback_lang = "en" if "en" in allowed_iso_codes else allowed_iso_codes[0]
