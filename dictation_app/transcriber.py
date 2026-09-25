@@ -197,14 +197,15 @@ class GeminiTranscriber(GeminiClientBase):
         return text
 
 
-def get_transcriber(model: str = DEFAULT_MODEL):
+def get_transcriber(model: str = DEFAULT_MODEL, languages=None):
     """Return appropriate speech-to-text transcriber instance based on model name."""
+    langs = languages if languages is not None else DICTATION_LANGUAGES
     if model.startswith("groq"):
-        return GroqTranscriber(model=model)
+        return GroqTranscriber(model=model, languages=langs)
     if model.startswith("azure"):
         if AzureTranscriber is None:
             raise ImportError(
                 "Azure Speech SDK is not available. Please install 'azure-cognitiveservices-speech'."
             )
-        return AzureTranscriber(model=model)
+        return AzureTranscriber(model=model, languages=langs)
     return GeminiTranscriber(model=model)

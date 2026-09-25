@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 
-from .config import GROQ_API_KEY
+from .config import DICTATION_LANGUAGES, GROQ_API_KEY, resolve_language_iso
 from .logger import get_logger
 
 logger = get_logger("GroqClient")
@@ -127,6 +127,30 @@ class GroqClientBase:
 class GroqTranscriber(GroqClientBase):
     """Transcribes audio using Groq Whisper models (whisper-large-v3-turbo, whisper-large-v3)."""
 
+    SLAVIC_OR_CYRILLIC_LANGUAGES = {
+        "russian",
+        "ru",
+        "bulgarian",
+        "bg",
+        "belarusian",
+        "be",
+        "serbian",
+        "sr",
+        "polish",
+        "pl",
+        "macedonian",
+        "mk",
+        "slovak",
+        "sk",
+        "czech",
+        "cs",
+        "slovenian",
+        "sl",
+        "croatian",
+        "hr",
+    }
+    RUSSIAN_ONLY_CHARS = set("ыэъёЫЭЪЁ")
+
     def __init__(
         self,
         api_key: str | None = None,
@@ -134,19 +158,63 @@ class GroqTranscriber(GroqClientBase):
         languages: Sequence[str] | None = None,
     ):
         super().__init__(api_key=api_key, model=model)
-        self.languages = languages
+        self.languages = list(languages) if languages is not None else list(DICTATION_LANGUAGES)
 
     def transcribe(self, audio_path: Path) -> str:
-        """Transcribe an audio file using Groq /v1/audio/transcriptions endpoint."""
+        """Transcribe an audio file using Groq /v1/audio/transcriptions endpoint.
+
+        Automatically manages dual-language English/Ukrainian recognition:
+        - If unconstrained Whisper detects a language outside allowed languages (e.g.
+          misidentifying short Ukrainian speech as Russian/Bulgarian/etc.), it automatically
+          re-transcribes with the correct target language in ~200ms without manual intervention.
+        """
         if not audio_path.exists() or audio_path.stat().st_size == 0:
             return ""
 
         url = f"{GROQ_BASE_URL}/audio/transcriptions"
         mime_type = "audio/flac" if audio_path.suffix.lower() == ".flac" else "audio/wav"
 
+        # Determine allowed language codes and names
+        configured_langs = [lang.strip() for lang in self.languages if lang.strip()]
+        allowed_iso_codes = [resolve_language_iso(lang) for lang in configured_langs]
+
+        # Case 1: If strictly single language is configured, lock it directly
+        if len(allowed_iso_codes) == 1:
+            data = {
+                "model": self.api_model,
+                "response_format": "json",
+                "language": allowed_iso_codes[0],
+            }
+            with open(audio_path, "rb") as f:
+                files = {"file": (audio_path.name, f, mime_type)}
+                try:
+                    response = self.client.post(
+                        url,
+                        headers=self._headers(),
+                        data=data,
+                        files=files,
+                    )
+                except httpx.RequestError as exc:
+                    raise GroqError(f"Network error communicating with Groq: {exc}") from exc
+
+            if response.status_code != 200:
+                _handle_groq_error(response)
+
+            res_json = response.json()
+            transcribed_text = str(res_json.get("text") or "").strip()
+            logger.info(
+                "Groq transcribed audio (single language %s) in model %s: %d chars",
+                allowed_iso_codes[0],
+                self.model,
+                len(transcribed_text),
+            )
+            return transcribed_text
+
+        # Case 2: Multilingual / bilingual (e.g. English and Ukrainian)
+        # Pass 1: Auto-detection with verbose_json metadata
         data = {
             "model": self.api_model,
-            "response_format": "json",
+            "response_format": "verbose_json",
         }
 
         with open(audio_path, "rb") as f:
@@ -165,11 +233,88 @@ class GroqTranscriber(GroqClientBase):
             _handle_groq_error(response)
 
         res_json = response.json()
+        detected_lang = str(res_json.get("language") or "").strip().lower()
         transcribed_text = str(res_json.get("text") or "").strip()
-        logger.info(
-            "Groq transcribed audio in model %s: %d chars", self.model, len(transcribed_text)
+
+        # Build allowed lookup sets for language matching
+        allowed_set = set(allowed_iso_codes)
+        for lang in configured_langs:
+            allowed_set.add(lang.lower())
+
+        has_cyrillic = any("\u0400" <= c <= "\u04ff" for c in transcribed_text)
+        has_russian_chars = any(c in self.RUSSIAN_ONLY_CHARS for c in transcribed_text)
+
+        # Verification rules:
+        # 1. English: detected as english/en and text is Latin
+        is_verified_english = (
+            detected_lang in ("english", "en")
+            and not has_cyrillic
+            and ("en" in allowed_iso_codes or "english" in allowed_set)
         )
-        return transcribed_text
+        # 2. Ukrainian: detected as ukrainian/uk and has no Russian-specific letters
+        is_verified_ukrainian = (
+            detected_lang in ("ukrainian", "uk")
+            and not has_russian_chars
+            and ("uk" in allowed_iso_codes or "ukrainian" in allowed_set)
+        )
+
+        if not detected_lang or is_verified_english or is_verified_ukrainian:
+            logger.info(
+                "Groq transcribed audio (%s) in model %s: %d chars",
+                detected_lang or "auto",
+                self.model,
+                len(transcribed_text),
+            )
+            return transcribed_text
+
+        # If detected language is not allowed or Russian letters leaked, determine correct fallback
+        if (
+            detected_lang in self.SLAVIC_OR_CYRILLIC_LANGUAGES
+            or has_cyrillic
+            or has_russian_chars
+        ):
+            fallback_lang = "uk" if "uk" in allowed_iso_codes else allowed_iso_codes[0]
+        else:
+            fallback_lang = "en" if "en" in allowed_iso_codes else allowed_iso_codes[0]
+
+        logger.info(
+            "Groq auto-detected '%s' (not in allowed %s); instantly re-transcribing with language='%s'",
+            detected_lang,
+            self.languages,
+            fallback_lang,
+        )
+
+        retry_data = {
+            "model": self.api_model,
+            "response_format": "json",
+            "language": fallback_lang,
+        }
+
+        with open(audio_path, "rb") as f2:
+            files_retry = {"file": (audio_path.name, f2, mime_type)}
+            try:
+                response_retry = self.client.post(
+                    url,
+                    headers=self._headers(),
+                    data=retry_data,
+                    files=files_retry,
+                )
+            except httpx.RequestError as exc:
+                raise GroqError(f"Network error communicating with Groq: {exc}") from exc
+
+        if response_retry.status_code != 200:
+            _handle_groq_error(response_retry)
+
+        res2_json = response_retry.json()
+        corrected_text = str(res2_json.get("text") or "").strip()
+        logger.info(
+            "Groq auto-corrected transcription (%s -> %s) in model %s: %d chars",
+            detected_lang,
+            fallback_lang,
+            self.model,
+            len(corrected_text),
+        )
+        return corrected_text
 
 
 class GroqCorrector(GroqClientBase):

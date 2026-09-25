@@ -362,6 +362,55 @@ LANGUAGE_NAME_TO_BCP47: dict[str, str] = {
     "hi": "hi-IN",
 }
 
+# Common language names and aliases mapped to ISO-639-1 two-letter codes (used by Whisper / Groq)
+LANGUAGE_NAME_TO_ISO639: dict[str, str] = {
+    "english": "en",
+    "en": "en",
+    "ukrainian": "uk",
+    "uk": "uk",
+    "spanish": "es",
+    "es": "es",
+    "french": "fr",
+    "fr": "fr",
+    "german": "de",
+    "de": "de",
+    "italian": "it",
+    "it": "it",
+    "polish": "pl",
+    "pl": "pl",
+    "portuguese": "pt",
+    "pt": "pt",
+    "japanese": "ja",
+    "ja": "ja",
+    "chinese": "zh",
+    "zh": "zh",
+    "dutch": "nl",
+    "nl": "nl",
+    "russian": "ru",
+    "ru": "ru",
+    "turkish": "tr",
+    "tr": "tr",
+    "swedish": "sv",
+    "sv": "sv",
+    "czech": "cs",
+    "cs": "cs",
+    "hindi": "hi",
+    "hi": "hi",
+}
+
+
+def resolve_language_iso(lang: str) -> str:
+    """Convert language name or locale to ISO-639-1 code (e.g. 'Ukrainian' -> 'uk', 'en-US' -> 'en')."""
+    cleaned = lang.strip().lower()
+    if cleaned in LANGUAGE_NAME_TO_ISO639:
+        return LANGUAGE_NAME_TO_ISO639[cleaned]
+    if "-" in cleaned:
+        prefix = cleaned.split("-")[0]
+        if prefix in LANGUAGE_NAME_TO_ISO639:
+            return LANGUAGE_NAME_TO_ISO639[prefix]
+        return prefix
+    return cleaned
+
 
 def resolve_azure_language_tags(languages: list[str] | None = None) -> list[str]:
     """Convert language names or codes to Azure-compatible BCP-47 locale tags (e.g. 'en-US')."""

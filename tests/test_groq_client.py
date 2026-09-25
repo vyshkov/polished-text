@@ -98,10 +98,17 @@ def test_groq_transcriber_success(mock_post, tmp_path):
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
-    mock_resp.json.return_value = {"text": "Hello world from Groq Whisper"}
+    mock_resp.json.return_value = {
+        "text": "Hello world from Groq Whisper",
+        "language": "English",
+    }
     mock_post.return_value = mock_resp
 
-    transcriber = GroqTranscriber(api_key="gsk_test123", model="groq:whisper-large-v3-turbo")
+    transcriber = GroqTranscriber(
+        api_key="gsk_test123",
+        model="groq:whisper-large-v3-turbo",
+        languages=["English", "Ukrainian"],
+    )
     result = transcriber.transcribe(audio_file)
 
     assert result == "Hello world from Groq Whisper"
@@ -113,7 +120,107 @@ def test_groq_transcriber_success(mock_post, tmp_path):
     assert "https://api.groq.com/openai/v1/audio/transcriptions" in args[0]
     assert kwargs["headers"]["Authorization"] == "Bearer gsk_test123"
     assert kwargs["data"]["model"] == "whisper-large-v3-turbo"
+    assert kwargs["data"]["response_format"] == "verbose_json"
+
+
+@patch.object(httpx.Client, "post")
+def test_groq_transcriber_single_language(mock_post, tmp_path):
+    audio_file = tmp_path / "test.flac"
+    audio_file.write_bytes(b"dummy audio content")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"text": "Доброго дня!"}
+    mock_post.return_value = mock_resp
+
+    transcriber = GroqTranscriber(
+        api_key="gsk_test123",
+        model="groq:whisper-large-v3-turbo",
+        languages=["Ukrainian"],
+    )
+    result = transcriber.transcribe(audio_file)
+
+    assert result == "Доброго дня!"
+    mock_post.assert_called_once()
+    _, kwargs = mock_post.call_args
     assert kwargs["data"]["response_format"] == "json"
+    assert kwargs["data"]["language"] == "uk"
+
+
+@patch.object(httpx.Client, "post")
+def test_groq_transcriber_auto_corrects_russian_to_ukrainian(mock_post, tmp_path):
+    audio_file = tmp_path / "short_ukrainian.flac"
+    audio_file.write_bytes(b"dummy audio content")
+
+    # Pass 1 detects Russian; Pass 2 with language=uk corrects to Ukrainian
+    resp_pass1 = MagicMock()
+    resp_pass1.status_code = 200
+    resp_pass1.json.return_value = {
+        "text": "Так.",
+        "language": "Russian",
+    }
+
+    resp_pass2 = MagicMock()
+    resp_pass2.status_code = 200
+    resp_pass2.json.return_value = {
+        "text": "Так!",
+    }
+
+    mock_post.side_effect = [resp_pass1, resp_pass2]
+
+    transcriber = GroqTranscriber(
+        api_key="gsk_test123",
+        model="groq:whisper-large-v3-turbo",
+        languages=["English", "Ukrainian"],
+    )
+    result = transcriber.transcribe(audio_file)
+
+    assert result == "Так!"
+    assert mock_post.call_count == 2
+
+    # Check 1st call: auto-detect with verbose_json
+    _, kwargs1 = mock_post.call_args_list[0]
+    assert kwargs1["data"]["response_format"] == "verbose_json"
+    assert "language" not in kwargs1["data"]
+
+    # Check 2nd call: corrected to Ukrainian (uk)
+    _, kwargs2 = mock_post.call_args_list[1]
+    assert kwargs2["data"]["response_format"] == "json"
+    assert kwargs2["data"]["language"] == "uk"
+
+
+@patch.object(httpx.Client, "post")
+def test_groq_transcriber_auto_corrects_western_false_positive_to_english(mock_post, tmp_path):
+    audio_file = tmp_path / "short_english.flac"
+    audio_file.write_bytes(b"dummy audio content")
+
+    resp_pass1 = MagicMock()
+    resp_pass1.status_code = 200
+    resp_pass1.json.return_value = {
+        "text": "Good morning",
+        "language": "Welsh",
+    }
+
+    resp_pass2 = MagicMock()
+    resp_pass2.status_code = 200
+    resp_pass2.json.return_value = {
+        "text": "Good morning!",
+    }
+
+    mock_post.side_effect = [resp_pass1, resp_pass2]
+
+    transcriber = GroqTranscriber(
+        api_key="gsk_test123",
+        model="groq:whisper-large-v3-turbo",
+        languages=["English", "Ukrainian"],
+    )
+    result = transcriber.transcribe(audio_file)
+
+    assert result == "Good morning!"
+    assert mock_post.call_count == 2
+
+    _, kwargs2 = mock_post.call_args_list[1]
+    assert kwargs2["data"]["language"] == "en"
 
 
 def test_groq_transcriber_empty_or_missing_file(tmp_path):
